@@ -1,0 +1,77 @@
+name: Publish NuGet Tool
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Package version to publish
+        required: true
+        default: 0.6.0-preview.1
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Build, verify, and publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Validate version
+        shell: bash
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          if [[ ! "$PACKAGE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid NuGet package version: $PACKAGE_VERSION" >&2
+            exit 1
+          fi
+
+      - name: Restore
+        run: dotnet restore mcp-guardian.slnx
+
+      - name: Build
+        run: dotnet build mcp-guardian.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet run --project tests/McpGuardian.Tests/McpGuardian.Tests.csproj --configuration Release --no-build
+
+      - name: Pack
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: >-
+          dotnet pack src/McpGuardian/McpGuardian.csproj
+          --configuration Release
+          --no-build
+          --output artifacts
+          -p:PackageVersion="$PACKAGE_VERSION"
+
+      - name: NuGet login
+        uses: NuGet/login@v1
+        id: nuget-login
+        with:
+          user: ilhanemir
+
+      - name: Publish to NuGet.org
+        env:
+          NUGET_API_KEY: ${{ steps.nuget-login.outputs.NUGET_API_KEY }}
+        run: >-
+          dotnet nuget push artifacts/*.nupkg
+          --api-key "$NUGET_API_KEY"
+          --source https://api.nuget.org/v3/index.json
+
+      - name: Upload published package
+        uses: actions/upload-artifact@v7
+        with:
+          name: McpGuardian.Tool-${{ inputs.version }}
+          path: artifacts/*.nupkg
+          if-no-files-found: error

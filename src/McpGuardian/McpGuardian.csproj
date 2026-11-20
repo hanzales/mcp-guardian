@@ -12,6 +12,11 @@
     <PackAsTool>true</PackAsTool>
     <ToolCommandName>mcp-guardian</ToolCommandName>
     <PackageId>McpGuardian.Tool</PackageId>
+    <Authors>İlhan Emir</Authors>
+    <PackageProjectUrl>https://github.com/hanzales/mcp-guardian</PackageProjectUrl>
+    <PackageTags>mcp;security;ai-security;model-context-protocol;cli;dotnet-tool</PackageTags>
+    <RepositoryType>git</RepositoryType>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
     <Description>Security scanner and policy foundation for Model Context Protocol configurations.</Description>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>
     <RepositoryUrl>https://github.com/hanzales/mcp-guardian</RepositoryUrl>
