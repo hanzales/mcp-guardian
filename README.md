@@ -8,7 +8,7 @@ Security scanner and policy foundation for the Model Context Protocol.
 
 MCP Guardian audits MCP client configuration before a server is trusted. It detects risky package resolution, embedded credentials, overly broad filesystem access, shell-based launchers, dangerous flags, and unencrypted remote transports. Reports can be emitted as text, JSON, or SARIF and enforced in CI.
 
-Version `0.2` adds automatic configuration discovery and cryptographic baselines that detect MCP server configuration drift.
+Version `0.3` adds explicit live capability inspection over stdio and Streamable HTTP, paginated capability export, canonical tool fingerprints, and tool-schema drift detection.
 
 > [!IMPORTANT]
 > MCP Guardian reduces known configuration risks; it does not prove that an MCP server is safe. Review server provenance, source code, requested capabilities, authorization behavior, and runtime activity.
@@ -21,6 +21,10 @@ Version `0.2` adds automatic configuration discovery and cryptographic baselines
 - CI policy gates through severity-based exit codes
 - Canonical SHA-256 fingerprints for trusted MCP server definitions
 - Detection of added, removed, and modified server configurations
+- Opt-in live MCP inspection over stdio and Streamable HTTP
+- Protocol, server, and capability inventory with tools, resources, and prompts export
+- Canonical tool fingerprints with added, removed, and modified tool detection
+- Bounded inspection time, response sizes, pagination, redirects, and child-process lifetime
 - Dependency-free runtime and test runner
 - Packaged as a .NET global tool
 
@@ -121,6 +125,38 @@ mcp-guardian baseline create .mcp.json --output security/mcp-baseline.json
 mcp-guardian baseline verify .mcp.json --baseline security/mcp-baseline.json
 ```
 
+### Inspect live capabilities
+
+Live inspection performs an MCP handshake and requests the capabilities advertised by one configured server. It is separate from the side-effect-free `scan` command.
+
+```bash
+# Remote Streamable HTTP server
+mcp-guardian inspect .mcp.json --server remote --format json
+
+# Local stdio server; the extra flag explicitly permits process execution
+mcp-guardian inspect .mcp.json --server filesystem --allow-process
+```
+
+Export a report and create a reviewed tool-schema baseline:
+
+```bash
+mcp-guardian inspect .mcp.json --server filesystem --allow-process \
+  --format json --output artifacts/filesystem-capabilities.json \
+  --save-baseline security/filesystem-capabilities.baseline.json
+```
+
+Detect tools that were added, removed, or modified:
+
+```bash
+mcp-guardian inspect .mcp.json --server filesystem --allow-process \
+  --baseline security/filesystem-capabilities.baseline.json
+```
+
+Inspection defaults to a 10-second timeout and a 1 MiB limit per response. Override them with `--timeout <seconds>` and `--max-response-bytes <bytes>`. Pagination is capped at 100 pages. HTTP redirects are disabled, stderr is drained without retention, and a launched stdio process is terminated after inspection.
+
+> [!WARNING]
+> Live inspection communicates with untrusted software. Review the static `scan` result first, use an isolated environment, and do not inspect a server with credentials or privileges it does not need. Guardian inventories metadata; it never calls an advertised tool.
+
 ## Output formats
 
 | Format | Intended use |
@@ -140,7 +176,7 @@ mcp-guardian scan .mcp.json --format json --output reports/guardian.json
 | Code | Meaning |
 | ---: | --- |
 | `0` | Command completed and the selected policy passed |
-| `1` | A finding reached `--fail-on`, or baseline drift was detected |
+| `1` | A finding reached `--fail-on`, or configuration/capability drift was detected |
 | `2` | Invalid arguments, unreadable input, or malformed configuration |
 
 ## Detection rules

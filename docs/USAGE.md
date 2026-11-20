@@ -52,6 +52,45 @@ mcp-guardian baseline verify .mcp.json
 
 When drift is intentional, review the complete configuration change and regenerate the baseline in the same pull request. Never update a baseline merely to silence CI.
 
+## Inspect a live MCP server
+
+Always run the static scanner and review its findings before live inspection:
+
+```bash
+mcp-guardian scan .mcp.json --fail-on high
+```
+
+Streamable HTTP inspection connects to the configured `url`. Stdio inspection starts the configured command and therefore requires explicit process consent:
+
+```bash
+mcp-guardian inspect .mcp.json --server remote --format json
+mcp-guardian inspect .mcp.json --server local --allow-process
+```
+
+Guardian initializes the MCP session, records the negotiated protocol version and server identity, sends `notifications/initialized`, and exports advertised tools, resources, and prompts. It follows list cursors but stops after 100 pages. It does not invoke tools, read resources, or render prompts.
+
+Create a trusted capability baseline after reviewing the complete export, then verify it later or in CI:
+
+```bash
+mcp-guardian inspect .mcp.json --server local --allow-process \
+  --format json --output artifacts/local-capabilities.json \
+  --save-baseline security/local-tools.json
+
+mcp-guardian inspect .mcp.json --server local --allow-process \
+  --baseline security/local-tools.json
+```
+
+Exit code `1` means a tool was added, removed, or modified. Capability baselines contain only tool names and SHA-256 fingerprints; inspection reports intentionally contain the server-provided schemas and descriptions.
+
+Bound resource use when inspecting an unfamiliar server:
+
+```bash
+mcp-guardian inspect .mcp.json --server remote \
+  --timeout 5 --max-response-bytes 262144
+```
+
+Timeouts and response limits apply to each exchange. HTTP redirects are rejected, stdio stderr is drained without retention, and child processes are terminated when inspection succeeds or fails. Run untrusted servers in an OS-level sandbox or disposable environment; Guardian does not provide process isolation.
+
 ## Severity policies
 
 ```bash

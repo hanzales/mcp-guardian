@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Text.Json;
 using McpGuardian.Baselines;
 using McpGuardian.Discovery;
+using McpGuardian.Inspection;
 using McpGuardian.Models;
 using McpGuardian.Scanning;
 
@@ -10,6 +11,9 @@ namespace McpGuardian.Cli;
 public static class CliApplication
 {
     public static int Run(string[] args, TextWriter output, TextWriter error)
+        => RunAsync(args, output, error).GetAwaiter().GetResult();
+
+    private static async Task<int> RunAsync(string[] args, TextWriter output, TextWriter error)
     {
         if (args.Length == 0 || HasFlag(args, "--help", "-h"))
         {
@@ -24,16 +28,87 @@ public static class CliApplication
                 "scan" => RunScan(args, output, error),
                 "discover" => RunDiscover(args, output),
                 "baseline" => RunBaseline(args, output, error),
+                "inspect" => await RunInspectAsync(args, output, error),
                 "version" or "--version" => RunVersion(output),
                 _ => UsageError($"Unknown command '{args[0]}'.", error)
             };
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or
-                                          JsonException or InvalidDataException or ArgumentException)
+                                          JsonException or InvalidDataException or ArgumentException or
+                                          HttpRequestException or TaskCanceledException)
         {
             error.WriteLine($"Command failed: {exception.Message}");
             return 2;
         }
+    }
+
+    private static async Task<int> RunInspectAsync(string[] args, TextWriter output, TextWriter error)
+    {
+        if (args.Length < 2 || args[1].StartsWith('-'))
+        {
+            return UsageError("Expected: inspect <config> --server <name>.", error);
+        }
+        var serverName = ReadOption(args, "--server");
+        if (string.IsNullOrWhiteSpace(serverName)) return UsageError("--server is required.", error);
+        var format = ReadOption(args, "--format")?.ToLowerInvariant() ?? "text";
+        if (format is not ("text" or "json")) return UsageError("--format must be text or json.", error);
+        var timeoutSeconds = ReadPositiveInt(args, "--timeout", 10);
+        var maxResponseBytes = ReadPositiveInt(args, "--max-response-bytes", 1_048_576);
+        var saveBaseline = ReadOption(args, "--save-baseline");
+        var verifyBaseline = ReadOption(args, "--baseline");
+        if (saveBaseline is not null && verifyBaseline is not null)
+            return UsageError("--save-baseline and --baseline cannot be used together.", error);
+
+        var configPath = args[1];
+        var server = ServerConfigReader.Read(configPath, serverName);
+        if (server.IsStdio && !HasFlag(args, "--allow-process"))
+        {
+            return UsageError("Stdio inspection starts the configured process. Re-run with --allow-process to opt in.", error);
+        }
+
+        var limits = new InspectionLimits(TimeSpan.FromSeconds(timeoutSeconds), maxResponseBytes);
+        await using IMcpTransport transport = server.IsStdio
+            ? new StdioMcpTransport(server, limits)
+            : new HttpMcpTransport(server, limits);
+        var report = await new CapabilityInspector().InspectAsync(configPath, serverName, transport);
+
+        var outputPath = ReadOption(args, "--output");
+        TextWriter destination = output;
+        StreamWriter? fileWriter = null;
+        if (outputPath is not null)
+        {
+            EnsureParentDirectory(outputPath);
+            fileWriter = new StreamWriter(outputPath, false);
+            destination = fileWriter;
+        }
+        try
+        {
+            if (format == "json") InspectionReportWriter.WriteJson(report, destination);
+            else InspectionReportWriter.WriteText(report, destination);
+        }
+        finally
+        {
+            fileWriter?.Dispose();
+        }
+        if (outputPath is not null) output.WriteLine($"Inspection report written to {Path.GetFullPath(outputPath)}");
+
+        var baselineService = new CapabilityBaselineService();
+        if (saveBaseline is not null)
+        {
+            baselineService.Save(baselineService.Create(report), saveBaseline);
+            output.WriteLine($"Capability baseline saved to {Path.GetFullPath(saveBaseline)}");
+        }
+        if (verifyBaseline is null) return 0;
+
+        var verification = baselineService.Verify(report, verifyBaseline);
+        if (verification.IsMatch)
+        {
+            output.WriteLine("Capability baseline verified: no tool-schema drift detected.");
+            return 0;
+        }
+        output.WriteLine($"Tool-schema drift detected ({verification.Changes.Count} change(s)):");
+        foreach (var change in verification.Changes) output.WriteLine($"- {change.Kind}: {change.Tool}");
+        return 1;
     }
 
     private static int RunScan(string[] args, TextWriter output, TextWriter error)
@@ -205,6 +280,15 @@ public static class CliApplication
         return null;
     }
 
+    private static int ReadPositiveInt(IReadOnlyList<string> args, string name, int defaultValue)
+    {
+        var value = ReadOption(args, name);
+        if (value is null) return defaultValue;
+        if (!int.TryParse(value, out var parsed) || parsed <= 0)
+            throw new ArgumentException($"Option {name} requires a positive integer.");
+        return parsed;
+    }
+
     private static bool HasFlag(IEnumerable<string> args, params string[] names) =>
         args.Any(arg => names.Contains(arg, StringComparer.OrdinalIgnoreCase));
 
@@ -236,11 +320,15 @@ public static class CliApplication
               mcp-guardian scan --all [scan options]
               mcp-guardian baseline create <config> [--output <file>]
               mcp-guardian baseline verify <config> [--baseline <file>]
+              mcp-guardian inspect <config> --server <name> [--allow-process]
+                                  [--format text|json] [--output <file>]
+                                  [--timeout <seconds>] [--max-response-bytes <bytes>]
+                                  [--save-baseline <file> | --baseline <file>]
               mcp-guardian version
 
             Exit codes:
               0  Command completed and the configured policy passed
-              1  Findings reached --fail-on, or baseline drift was detected
+              1  Findings reached --fail-on, or baseline/capability drift was detected
               2  Invalid usage, unreadable input, or malformed configuration
             """);
     }

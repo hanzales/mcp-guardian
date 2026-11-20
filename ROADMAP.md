@@ -14,13 +14,13 @@ The roadmap is ordered by security value and implementation dependency. Versions
 
 ## v0.3 — Live capability inspector
 
-- [ ] Explicit, opt-in stdio server inspection
-- [ ] Streamable HTTP inspection
-- [ ] Protocol version and capability inventory
-- [ ] `tools/list`, resources, and prompts export
-- [ ] Tool-schema fingerprints
-- [ ] Added, removed, and modified tool detection
-- [ ] Strict timeouts, response limits, and process cleanup
+- [x] Explicit, opt-in stdio server inspection
+- [x] Streamable HTTP inspection
+- [x] Protocol version and capability inventory
+- [x] `tools/list`, resources, and prompts export
+- [x] Tool-schema fingerprints
+- [x] Added, removed, and modified tool detection
+- [x] Strict timeouts, response limits, and process cleanup
 
 ## v0.4 — Semantic attack-surface analysis
 

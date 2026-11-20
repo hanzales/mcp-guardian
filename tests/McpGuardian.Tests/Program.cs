@@ -1,8 +1,14 @@
 using McpGuardian.Baselines;
 using McpGuardian.Cli;
 using McpGuardian.Discovery;
+using McpGuardian.Inspection;
 using McpGuardian.Models;
 using McpGuardian.Scanning;
+
+if (args is ["--mcp-fixture"])
+{
+    return RunMcpFixture();
+}
 
 var failures = new List<string>();
 Run("detects vulnerable configuration", DetectsVulnerableConfiguration);
@@ -14,6 +20,12 @@ Run("creates stable canonical baseline", CreatesStableCanonicalBaseline);
 Run("detects baseline drift", DetectsBaselineDrift);
 Run("writes valid SARIF", WritesValidSarif);
 Run("CLI honors fail-on threshold", CliHonorsFailOnThreshold);
+Run("inspects and exports live capabilities", InspectsLiveCapabilities);
+Run("detects tool schema drift", DetectsToolSchemaDrift);
+Run("requires explicit stdio process opt-in", RequiresExplicitProcessOptIn);
+Run("supports Streamable HTTP JSON and SSE", SupportsStreamableHttp);
+Run("enforces HTTP response size limit", EnforcesHttpResponseLimit);
+Run("inspects a real stdio child process", InspectsRealStdioProcess);
 
 if (failures.Count > 0)
 {
@@ -22,7 +34,7 @@ if (failures.Count > 0)
     return 1;
 }
 
-Console.WriteLine("All 9 tests passed.");
+Console.WriteLine("All 15 tests passed.");
 return 0;
 
 void Run(string name, Action test)
@@ -147,6 +159,165 @@ void CliHonorsFailOnThreshold()
     });
 }
 
+void InspectsLiveCapabilities()
+{
+    var transport = new FakeTransport(new Dictionary<string, Queue<string>>(StringComparer.Ordinal)
+    {
+        ["initialize"] = Responses("""
+            {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","serverInfo":{"name":"fixture","version":"1.0.0"},"capabilities":{"tools":{"listChanged":true},"resources":{},"prompts":{},"logging":{}}}}
+            """),
+        ["tools/list"] = Responses(
+            """{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"alpha","description":"First","inputSchema":{"type":"object"}}],"nextCursor":"page-2"}}""",
+            """{"jsonrpc":"2.0","id":3,"result":{"tools":[{"name":"beta","inputSchema":{"type":"object","properties":{}}}]}}"""),
+        ["resources/list"] = Responses("""{"jsonrpc":"2.0","id":4,"result":{"resources":[{"name":"docs","uri":"file:///docs"}]}}"""),
+        ["prompts/list"] = Responses("""{"jsonrpc":"2.0","id":5,"result":{"prompts":[{"name":"review"}]}}""")
+    });
+
+    var report = new CapabilityInspector().InspectAsync("fixture.json", "fixture", transport).GetAwaiter().GetResult();
+    Assert(report.Tools.Count == 2, "paginated tools were not exported");
+    Assert(report.Resources.Single().Name == "docs", "resources were not exported");
+    Assert(report.Prompts.Single().Name == "review", "prompts were not exported");
+    Assert(report.Tools.All(tool => tool.Fingerprint.Length == 64), "tool fingerprints are invalid");
+    Assert(transport.Notifications.Contains("notifications/initialized"), "initialized notification was not sent");
+}
+
+void DetectsToolSchemaDrift()
+{
+    WithTempDirectory(directory =>
+    {
+        var service = new CapabilityBaselineService();
+        var baselinePath = Path.Combine(directory, "capabilities.json");
+        var original = InspectionWithTools(("alpha", "a1"), ("removed", "b1"));
+        service.Save(service.Create(original), baselinePath);
+        var current = InspectionWithTools(("alpha", "a2"), ("added", "c1"));
+        var verification = service.Verify(current, baselinePath);
+        Assert(verification.Changes.Any(change => change.Tool == "alpha" && change.Kind == CapabilityChangeKind.Modified), "modified tool not detected");
+        Assert(verification.Changes.Any(change => change.Tool == "removed" && change.Kind == CapabilityChangeKind.Removed), "removed tool not detected");
+        Assert(verification.Changes.Any(change => change.Tool == "added" && change.Kind == CapabilityChangeKind.Added), "added tool not detected");
+    });
+}
+
+void RequiresExplicitProcessOptIn()
+{
+    WithTempDirectory(directory =>
+    {
+        var config = Path.Combine(directory, "mcp.json");
+        File.WriteAllText(config, "{\"mcpServers\":{\"fixture\":{\"command\":\"never-run\"}}}");
+        using var output = new StringWriter();
+        using var error = new StringWriter();
+        var code = CliApplication.Run(new[] { "inspect", config, "--server", "fixture" }, output, error);
+        Assert(code == 2, "stdio inspection did not require opt-in");
+        Assert(error.ToString().Contains("--allow-process", StringComparison.Ordinal), "opt-in guidance was not shown");
+    });
+}
+
+void SupportsStreamableHttp()
+{
+    var handler = new SequenceHttpHandler(
+        HttpResponse("""{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2025-11-25","capabilities":{}}}""", "application/json", "session-1"),
+        HttpResponse("data: {\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{}}\n\n", "text/event-stream"));
+    var definition = new ServerDefinition("remote", null, Array.Empty<string>(), new Dictionary<string, string>(), new Uri("https://example.test/mcp"), new Dictionary<string, string>());
+    var transport = new HttpMcpTransport(definition, InspectionLimits.Default, handler);
+    using var first = transport.SendRequestAsync("initialize", null, default).GetAwaiter().GetResult();
+    using var second = transport.SendRequestAsync("tools/list", null, default).GetAwaiter().GetResult();
+    transport.DisposeAsync().GetAwaiter().GetResult();
+    Assert(first.RootElement.TryGetProperty("result", out _), "JSON response was not parsed");
+    Assert(second.RootElement.TryGetProperty("result", out _), "SSE response was not parsed");
+    Assert(handler.Headers[1].Session == "session-1", "MCP session ID was not preserved");
+    Assert(handler.Headers[1].Protocol == "2025-11-25", "MCP protocol header was not sent");
+}
+
+void EnforcesHttpResponseLimit()
+{
+    var handler = new SequenceHttpHandler(HttpResponse(new string('x', 128), "application/json"));
+    var definition = new ServerDefinition("remote", null, Array.Empty<string>(), new Dictionary<string, string>(), new Uri("https://example.test/mcp"), new Dictionary<string, string>());
+    var transport = new HttpMcpTransport(definition, new InspectionLimits(TimeSpan.FromSeconds(1), 32), handler);
+    try
+    {
+        transport.SendRequestAsync("initialize", null, default).GetAwaiter().GetResult();
+        throw new InvalidOperationException("oversized response was accepted");
+    }
+    catch (InvalidDataException)
+    {
+        // Expected.
+    }
+    finally
+    {
+        transport.DisposeAsync().GetAwaiter().GetResult();
+    }
+}
+
+void InspectsRealStdioProcess()
+{
+    var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Process path is unavailable.");
+    var assembly = Environment.GetCommandLineArgs()[0];
+    var definition = new ServerDefinition(
+        "stdio-fixture", executable, new[] { assembly, "--mcp-fixture" },
+        new Dictionary<string, string>(), null, new Dictionary<string, string>());
+    var transport = new StdioMcpTransport(definition, new InspectionLimits(TimeSpan.FromSeconds(5), 64 * 1024));
+    try
+    {
+        var report = new CapabilityInspector().InspectAsync("fixture.json", "stdio-fixture", transport).GetAwaiter().GetResult();
+        Assert(report.Transport == "stdio", "stdio transport was not reported");
+        Assert(report.Tools.Single().Name == "fixture.echo", "stdio tool was not exported");
+    }
+    finally
+    {
+        transport.DisposeAsync().GetAwaiter().GetResult();
+    }
+}
+
+int RunMcpFixture()
+{
+    string? line;
+    while ((line = Console.ReadLine()) is not null)
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(line);
+        var root = document.RootElement;
+        if (!root.TryGetProperty("id", out var id)) continue;
+        var method = root.GetProperty("method").GetString();
+        object result = method switch
+        {
+            "initialize" => new
+            {
+                protocolVersion = "2025-11-25",
+                serverInfo = new { name = "stdio-fixture", version = "1.0.0" },
+                capabilities = new { tools = new { } }
+            },
+            "tools/list" => new
+            {
+                tools = new[]
+                {
+                    new { name = "fixture.echo", description = "Echo fixture", inputSchema = new { type = "object" } }
+                }
+            },
+            _ => new { }
+        };
+        Console.WriteLine(System.Text.Json.JsonSerializer.Serialize(new { jsonrpc = "2.0", id = id.GetInt32(), result }));
+        Console.Out.Flush();
+    }
+    return 0;
+}
+
+Queue<string> Responses(params string[] values) => new(values);
+
+InspectionReport InspectionWithTools(params (string Name, string Fingerprint)[] tools) => new(
+    1, "fixture.json", "fixture", "fake", DateTimeOffset.UtcNow, "2025-11-25",
+    new ServerIdentity("fixture", "1.0.0"),
+    new CapabilityInventory(true, false, false, false, Array.Empty<string>()),
+    tools.Select(tool => new CapabilityItem(tool.Name, null, System.Text.Json.JsonSerializer.SerializeToElement(new { name = tool.Name }), tool.Fingerprint.PadRight(64, '0'))).ToArray(),
+    Array.Empty<CapabilityItem>(), Array.Empty<CapabilityItem>(), Array.Empty<string>());
+
+HttpResponseMessage HttpResponse(string content, string mediaType, string? session = null)
+{
+    var response = new HttpResponseMessage(System.Net.HttpStatusCode.OK)
+    {
+        Content = new StringContent(content, System.Text.Encoding.UTF8, mediaType)
+    };
+    if (session is not null) response.Headers.TryAddWithoutValidation("Mcp-Session-Id", session);
+    return response;
+}
+
 ScanReport Scan(string json)
 {
     var path = Path.GetTempFileName();
@@ -180,5 +351,39 @@ void WithTempDirectory(Action<string> action)
     finally
     {
         Directory.Delete(directory, true);
+    }
+}
+
+sealed class FakeTransport(IReadOnlyDictionary<string, Queue<string>> responses) : IMcpTransport
+{
+    public string Name => "fake";
+    public List<string> Notifications { get; } = [];
+
+    public Task<System.Text.Json.JsonDocument> SendRequestAsync(string method, object? parameters, CancellationToken cancellationToken)
+    {
+        if (!responses.TryGetValue(method, out var queue) || queue.Count == 0) throw new InvalidOperationException($"No fake response for {method}.");
+        return Task.FromResult(System.Text.Json.JsonDocument.Parse(queue.Dequeue()));
+    }
+
+    public Task SendNotificationAsync(string method, object? parameters, CancellationToken cancellationToken)
+    {
+        Notifications.Add(method);
+        return Task.CompletedTask;
+    }
+
+    public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+}
+
+sealed class SequenceHttpHandler(params HttpResponseMessage[] responses) : HttpMessageHandler
+{
+    private readonly Queue<HttpResponseMessage> queue = new(responses);
+    public List<(string? Session, string? Protocol)> Headers { get; } = [];
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Headers.Add((
+            request.Headers.TryGetValues("Mcp-Session-Id", out var sessions) ? sessions.Single() : null,
+            request.Headers.TryGetValues("MCP-Protocol-Version", out var protocols) ? protocols.Single() : null));
+        return Task.FromResult(queue.Count > 0 ? queue.Dequeue() : throw new InvalidOperationException("No HTTP fixture response."));
     }
 }
