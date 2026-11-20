@@ -1,0 +1,109 @@
+# Usage guide
+
+This guide describes practical MCP Guardian workflows. Commands assume the tool is installed globally; replace `mcp-guardian` with `dotnet run --project src/McpGuardian --` when running from source.
+
+## Review an MCP configuration before enabling it
+
+1. Obtain the configuration from a trusted source.
+2. Inspect package names, versions, commands, arguments, URLs, environment variables, and filesystem paths manually.
+3. Run Guardian:
+
+   ```bash
+   mcp-guardian scan proposed-mcp.json --fail-on high
+   ```
+
+4. Resolve findings or document accepted risk.
+5. Move the reviewed configuration into the client-specific location.
+6. Create a trusted baseline:
+
+   ```bash
+   mcp-guardian baseline create .mcp.json
+   ```
+
+A clean scan is not approval by itself. Guardian cannot prove that a referenced package or remote server behaves as declared.
+
+## Audit the current workstation
+
+```bash
+mcp-guardian discover
+mcp-guardian scan --all
+mcp-guardian scan --all --fail-on high
+```
+
+The discovery command only reports paths; it does not modify client settings or start MCP servers.
+
+## Produce machine-readable reports
+
+```bash
+mcp-guardian scan .mcp.json --format json --output artifacts/mcp-guardian.json
+mcp-guardian scan .mcp.json --format sarif --output artifacts/mcp-guardian.sarif
+```
+
+Reports never include detected secret values. Finding messages identify the environment variable name, server name, rule, severity, and remediation.
+
+## Use a baseline in pull requests
+
+```bash
+mcp-guardian baseline create .mcp.json
+git add .mcp-guardian.baseline.json
+git commit -m "security: trust reviewed MCP configuration"
+mcp-guardian baseline verify .mcp.json
+```
+
+When drift is intentional, review the complete configuration change and regenerate the baseline in the same pull request. Never update a baseline merely to silence CI.
+
+## Severity policies
+
+```bash
+# Block only critical findings
+mcp-guardian scan .mcp.json --fail-on critical
+
+# Block high and critical findings
+mcp-guardian scan .mcp.json --fail-on high
+
+# Strict policy: block every current rule
+mcp-guardian scan .mcp.json --fail-on low
+```
+
+## Troubleshooting
+
+### `Missing MCP servers object`
+
+Guardian currently expects the common JSON shape:
+
+```json
+{
+  "mcpServers": {
+    "example": {
+      "command": "example-server",
+      "args": []
+    }
+  }
+}
+```
+
+VS Code's equivalent top-level `servers` object is also supported. Some clients wrap MCP configuration in another object or store it in TOML. Those formats require a future adapter.
+
+### No configurations discovered
+
+Pass the file explicitly:
+
+```bash
+mcp-guardian scan /path/to/client-config.json
+```
+
+Then open an issue with the client name and documented configuration location if it should be supported.
+
+### A package is reported as unpinned
+
+Use an exact semantic version:
+
+```json
+"args": ["@vendor/server@1.2.3"]
+```
+
+Tags such as `latest`, version ranges, Git branches, and missing versions are intentionally not considered pinned.
+
+### Baseline drift occurs after formatting
+
+Whitespace and JSON object property order are canonicalized. Array order remains significant because it can change command behavior. If formatting alone causes drift, report it as a bug with a minimal redacted example.

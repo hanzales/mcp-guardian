@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/McpGuardian/McpGuardian.csproj" />
+  <Project Path="tests/McpGuardian.Tests/McpGuardian.Tests.csproj" />
+</Solution>

@@ -25,13 +25,12 @@ public sealed partial class ConfigScanner
         });
 
         var findings = new List<Finding>();
-        if (!document.RootElement.TryGetProperty("mcpServers", out var servers) ||
-            servers.ValueKind != JsonValueKind.Object)
+        if (!TryGetServers(document.RootElement, out var servers))
         {
             findings.Add(new Finding(
-                "MCG001", Severity.High, "configuration", "Missing mcpServers object",
-                "The file does not contain a valid top-level mcpServers object.",
-                "Use the standard MCP client configuration shape."));
+                "MCG001", Severity.High, "configuration", "Missing MCP servers object",
+                "The file does not contain a valid top-level mcpServers or servers object.",
+                "Use the configuration shape documented by the target MCP client."));
             return BuildReport(path, findings);
         }
 
@@ -141,6 +140,16 @@ public sealed partial class ConfigScanner
         element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString()
             : null;
+
+    private static bool TryGetServers(JsonElement root, out JsonElement servers)
+    {
+        if (root.TryGetProperty("mcpServers", out servers) && servers.ValueKind == JsonValueKind.Object)
+        {
+            return true;
+        }
+
+        return root.TryGetProperty("servers", out servers) && servers.ValueKind == JsonValueKind.Object;
+    }
 
     private static IReadOnlyList<string> GetStrings(JsonElement element, string property) =>
         element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.Array

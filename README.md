@@ -1,42 +1,153 @@
 # MCP Guardian
 
-Security scanner and policy gateway for the Model Context Protocol.
+[![CI](https://github.com/hanzales/mcp-guardian/actions/workflows/ci.yml/badge.svg)](https://github.com/hanzales/mcp-guardian/actions/workflows/ci.yml)
+[![.NET 10](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-MCP Guardian audits MCP client configuration before a server is trusted. It finds risky package resolution, embedded credentials, overly broad filesystem access, shell-based launchers, dangerous flags, and unencrypted remote transports. The CLI produces human-readable or JSON reports and can block CI when findings cross a chosen severity.
+Security scanner and policy foundation for the Model Context Protocol.
+
+MCP Guardian audits MCP client configuration before a server is trusted. It detects risky package resolution, embedded credentials, overly broad filesystem access, shell-based launchers, dangerous flags, and unencrypted remote transports. Reports can be emitted as text, JSON, or SARIF and enforced in CI.
+
+Version `0.2` adds automatic configuration discovery and cryptographic baselines that detect MCP server configuration drift.
 
 > [!IMPORTANT]
-> This project is an early security tool. A clean scan is not proof that an MCP server is safe; review server code, provenance, requested capabilities, and runtime behavior.
+> MCP Guardian reduces known configuration risks; it does not prove that an MCP server is safe. Review server provenance, source code, requested capabilities, authorization behavior, and runtime activity.
+
+## Features
+
+- Deterministic scanning with clear remediation guidance
+- Automatic discovery for supported Claude, Cursor, VS Code, and project configurations
+- Text, JSON, and SARIF 2.1.0 reports
+- CI policy gates through severity-based exit codes
+- Canonical SHA-256 fingerprints for trusted MCP server definitions
+- Detection of added, removed, and modified server configurations
+- Dependency-free runtime and test runner
+- Packaged as a .NET global tool
+
+## Requirements
+
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)
+
+The repository pins SDK `10.0.404` through [`global.json`](global.json). A newer compatible .NET 10 feature band can be used through `rollForward`.
 
 ## Quick start
 
-Requires the .NET 7 SDK or newer.
-
 ```bash
+git clone https://github.com/hanzales/mcp-guardian.git
+cd mcp-guardian
 dotnet run --project src/McpGuardian -- scan examples/vulnerable/mcp.json
 ```
 
-JSON output and CI failure threshold:
+Expected summary:
+
+```text
+Risk: CRITICAL | Score: 84/100 | Findings: 4
+```
+
+Scan a real configuration and fail when a high or critical finding is detected:
 
 ```bash
 dotnet run --project src/McpGuardian -- \
-  scan .mcp.json --format json --fail-on high
+  scan .mcp.json --fail-on high
 ```
 
-Example output:
+## Install as a local .NET tool
 
-```text
-MCP Guardian — /path/to/mcp.json
-Risk: CRITICAL | Score: 84/100 | Findings: 4
+Until packages are published to NuGet, build and install directly from the repository:
 
-[CRITICAL] MCG105 Hard-coded credential (filesystem)
-  Environment variable 'API_TOKEN' appears to contain a literal credential.
+```bash
+dotnet pack src/McpGuardian/McpGuardian.csproj \
+  --configuration Release \
+  --output ./artifacts
+
+dotnet tool install --global \
+  --add-source ./artifacts \
+  McpGuardian.Tool
 ```
 
-## Rules
+Then use it from any directory:
+
+```bash
+mcp-guardian version
+mcp-guardian discover
+mcp-guardian scan .mcp.json
+```
+
+## Commands
+
+### Discover configurations
+
+```bash
+mcp-guardian discover
+mcp-guardian discover --json
+```
+
+Discovery checks project-local and user-level locations used by Claude Desktop, Claude Code JSON configurations, Cursor, VS Code, and project-level `.mcp.json` files. Only files that exist are returned. TOML and proprietary databases are not parsed in this release.
+
+### Scan
+
+```bash
+mcp-guardian scan <config>
+mcp-guardian scan <config> --format json
+mcp-guardian scan <config> --format sarif --output guardian.sarif
+mcp-guardian scan <config> --fail-on high
+mcp-guardian scan --all --fail-on critical
+```
+
+`--all` scans every supported configuration found by `discover`.
+
+### Create and verify a trusted baseline
+
+Create a baseline after manually reviewing a configuration:
+
+```bash
+mcp-guardian baseline create .mcp.json
+```
+
+This writes `.mcp-guardian.baseline.json` beside the configuration. Each server definition is canonicalized and hashed with SHA-256; secrets and raw configuration values are not copied into the baseline.
+
+Verify it later:
+
+```bash
+mcp-guardian baseline verify .mcp.json
+```
+
+Guardian returns exit code `1` if a server was added, removed, or modified. Property reordering and whitespace changes do not create false drift.
+
+Custom baseline location:
+
+```bash
+mcp-guardian baseline create .mcp.json --output security/mcp-baseline.json
+mcp-guardian baseline verify .mcp.json --baseline security/mcp-baseline.json
+```
+
+## Output formats
+
+| Format | Intended use |
+| --- | --- |
+| `text` | Local terminal and human review |
+| `json` | Automation and custom integrations |
+| `sarif` | GitHub Code Scanning and SARIF-compatible platforms |
+
+Write any format to a file with `--output`:
+
+```bash
+mcp-guardian scan .mcp.json --format json --output reports/guardian.json
+```
+
+## Exit codes
+
+| Code | Meaning |
+| ---: | --- |
+| `0` | Command completed and the selected policy passed |
+| `1` | A finding reached `--fail-on`, or baseline drift was detected |
+| `2` | Invalid arguments, unreadable input, or malformed configuration |
+
+## Detection rules
 
 | Rule | Severity | Detects |
 | --- | --- | --- |
-| `MCG001` | High | Invalid or missing `mcpServers` configuration |
+| `MCG001` | High | Invalid or missing `mcpServers` / `servers` configuration |
 | `MCG101` | Critical | MCP servers launched through a command shell |
 | `MCG102` | High | npm packages without an exact version |
 | `MCG103` | High | Filesystem root or home-directory access |
@@ -44,37 +155,68 @@ Risk: CRITICAL | Score: 84/100 | Findings: 4
 | `MCG105` | Critical | Credentials embedded directly in configuration |
 | `MCG106` | Critical | Explicit broad-permission or dangerous flags |
 
+See [docs/USAGE.md](docs/USAGE.md) for detailed workflows and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design and trust boundaries.
+
+## GitHub Actions
+
+The repository CI builds and tests the tool, verifies the secure fixture, produces SARIF, uploads findings to GitHub Code Scanning, and packages the .NET tool.
+
+For another repository, build Guardian and run:
+
+```yaml
+- name: Scan MCP configuration
+  run: >-
+    dotnet run --project tools/mcp-guardian/src/McpGuardian --
+    scan .mcp.json
+    --format sarif
+    --output artifacts/mcp-guardian.sarif
+    --fail-on high
+```
+
+A reusable standalone GitHub Action is planned for a later release.
+
 ## Security model
 
-MCP servers are software installed into an agent's trust boundary. Local stdio servers inherit the permissions of the client that starts them, while remote servers introduce identity, transport, authorization, and token-handling risks.
+Local stdio MCP servers run with the privileges of the client that starts them. Remote servers add transport, identity, authorization, token, and data-exfiltration risks. Guardian therefore follows these principles:
 
-MCP Guardian follows these principles:
-
-- Treat tool definitions and configuration as untrusted input.
+- Treat configuration and tool metadata as untrusted input.
 - Prefer exact, reviewed dependencies and narrow capabilities.
-- Keep credentials out of configuration and logs.
-- Require TLS for remote transports.
-- Make security decisions deterministic and enforce them outside the model.
+- Keep credentials out of configuration, reports, and logs.
+- Require encrypted transport for non-local endpoints.
+- Keep enforcement deterministic and outside the language model.
+- Detect trust changes instead of assuming a previously reviewed server is unchanged.
 
 See the [official MCP security considerations](https://github.com/modelcontextprotocol/modelcontextprotocol/blob/main/docs/specification/2026-07-28/basic/authorization/security-considerations.mdx) and the [OWASP MCP Security Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/MCP_Security_Cheat_Sheet.html).
 
-## Roadmap
+## Project structure
 
-- Tool-schema fingerprinting and change detection
-- Runtime allow/deny policy gateway
-- OAuth audience, resource indicator, and token-passthrough checks
-- SARIF and GitHub Code Scanning integration
-- Adversarial MCP test lab for tool poisoning, injection, SSRF, and confused-deputy attacks
-- Signed release binaries for Linux, macOS, and Windows
+```text
+src/McpGuardian/
+├── Baselines/    Canonical fingerprints and drift detection
+├── Cli/          Commands and report writers
+├── Discovery/    Client configuration discovery
+├── Models/       Shared report contracts
+└── Scanning/     Deterministic detection rules
+
+tests/McpGuardian.Tests/  Dependency-free executable test suite
+examples/                 Secure and vulnerable configurations
+docs/                     Usage and architecture documentation
+```
 
 ## Development
 
-The test runner intentionally has no third-party dependencies.
-
 ```bash
-dotnet build src/McpGuardian/McpGuardian.csproj
-dotnet run --project tests/McpGuardian.Tests/McpGuardian.Tests.csproj
+dotnet restore mcp-guardian.slnx
+dotnet build mcp-guardian.slnx --configuration Release --no-restore
+dotnet run --project tests/McpGuardian.Tests/McpGuardian.Tests.csproj \
+  --configuration Release --no-build
 ```
+
+The test project intentionally uses no third-party test framework, keeping restore and supply-chain exposure minimal.
+
+## Roadmap
+
+The next milestones include live MCP capability inspection, tool-schema fingerprinting, tool-poisoning checks, OAuth compliance auditing, and a runtime policy gateway. See [ROADMAP.md](ROADMAP.md).
 
 ## Responsible disclosure
 
@@ -82,4 +224,4 @@ Do not open public issues for suspected vulnerabilities. Follow [SECURITY.md](SE
 
 ## License
 
-MIT
+[MIT](LICENSE)
