@@ -33,11 +33,11 @@ The roadmap is ordered by security value and implementation dependency. Versions
 
 ## v0.5 — Authorization auditor
 
-- [ ] Protected Resource Metadata and Authorization Server Metadata validation
-- [ ] PKCE `S256`, resource indicator, token audience, and issuer checks
-- [ ] Redirect URI and Dynamic Client Registration checks
-- [ ] Token-passthrough and confused-deputy diagnostics
-- [ ] CORS, allowed-host, rate-limit, and logging guidance
+- [x] Protected Resource Metadata and Authorization Server Metadata validation
+- [x] PKCE `S256`, resource indicator, token audience, and issuer checks
+- [x] Redirect URI and Dynamic Client Registration checks
+- [x] Token-passthrough and confused-deputy diagnostics
+- [x] CORS, allowed-host, rate-limit, and logging guidance
 
 ## v1.0 — Runtime policy gateway
 

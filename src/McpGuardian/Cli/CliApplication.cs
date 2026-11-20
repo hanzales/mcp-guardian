@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text.Json;
 using McpGuardian.Baselines;
+using McpGuardian.Authorization;
 using McpGuardian.Discovery;
 using McpGuardian.Inspection;
 using McpGuardian.Models;
@@ -32,6 +33,7 @@ public static class CliApplication
                 "baseline" => RunBaseline(args, output, error),
                 "inspect" => await RunInspectAsync(args, output, error),
                 "analyze" => RunAnalyze(args, output, error),
+                "audit-auth" => RunAuthorizationAudit(args, output, error),
                 "version" or "--version" => RunVersion(output),
                 _ => UsageError($"Unknown command '{args[0]}'.", error)
             };
@@ -43,6 +45,22 @@ public static class CliApplication
             error.WriteLine($"Command failed: {exception.Message}");
             return 2;
         }
+    }
+
+    private static int RunAuthorizationAudit(string[] args, TextWriter output, TextWriter error)
+    {
+        if (args.Length < 2 || args[1].StartsWith('-')) return UsageError("Expected: audit-auth <evidence.json>.", error);
+        var format = ReadOption(args, "--format")?.ToLowerInvariant() ?? "text";
+        if (format is not ("text" or "json")) return UsageError("--format must be text or json.", error);
+        var input = JsonSerializer.Deserialize<AuthorizationAuditInput>(File.ReadAllText(args[1]), new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                    ?? throw new InvalidDataException("Authorization evidence file is empty.");
+        var report = new AuthorizationAuditor().Audit(input, args[1]);
+        if (format == "json") AuthorizationReportWriter.WriteJson(report, output); else AuthorizationReportWriter.WriteText(report, output);
+        var thresholdValue = ReadOption(args, "--fail-on");
+        if (thresholdValue is null) return 0;
+        if (!Enum.TryParse<Severity>(thresholdValue, true, out var threshold) || threshold == Severity.Info)
+            return UsageError("--fail-on must be low, medium, high, or critical.", error);
+        return report.HasAtLeast(threshold) ? 1 : 0;
     }
 
     private static int RunAnalyze(string[] args, TextWriter output, TextWriter error)
@@ -376,6 +394,8 @@ public static class CliApplication
                                   [--save-baseline <file> | --baseline <file>]
               mcp-guardian analyze <inspection.json> [more reports...]
                                   [--format text|json] [--output <file>]
+                                  [--fail-on low|medium|high|critical]
+              mcp-guardian audit-auth <evidence.json> [--format text|json]
                                   [--fail-on low|medium|high|critical]
               mcp-guardian version
 

@@ -1,0 +1,15 @@
+{
+  "resourceUrl": "https://mcp.example.com/mcp",
+  "protectedResourceMetadata": { "resource": "https://other.example.com", "authorization_servers": ["http://auth.example.com"] },
+  "authorizationServerMetadata": { "issuer": "https://attacker.example.com", "authorization_endpoint": "http://auth.example.com/authorize", "token_endpoint": "http://auth.example.com/token", "code_challenge_methods_supported": ["plain"] },
+  "redirectUris": ["http://client.example.com/callback"],
+  "sendsResourceParameter": false,
+  "validatesTokenAudience": false,
+  "acceptsUpstreamTokens": true,
+  "forwardsBearerTokens": true,
+  "validatesAuthorizationResponseIssuer": false,
+  "rateLimitingEnabled": false,
+  "securityLoggingEnabled": false,
+  "corsAllowedOrigins": ["*"],
+  "allowedHosts": []
+}

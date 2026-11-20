@@ -1,6 +1,6 @@
 # Architecture
 
-MCP Guardian `0.4` is a dependency-free .NET 10 command-line application. Static and semantic analysis are deterministic. Live inspection is isolated behind an explicit command and records server-provided state; later semantic analysis operates offline on those reports.
+MCP Guardian `0.5` is a dependency-free .NET 10 command-line application. Static, semantic, and authorization evidence analysis are deterministic. Live inspection is isolated behind an explicit command; later analysis operates offline.
 
 ## Components
 
@@ -12,6 +12,7 @@ CLI
 ├── Inspection ─ negotiates bounded stdio or Streamable HTTP sessions
 ├── Capabilities exports metadata and fingerprints tool definitions
 ├── Semantics ── detects metadata attacks and cross-server composition risks
+├── Authorization validates OAuth metadata and implementation evidence
 └── Reporters ── writes text, JSON, or SARIF
 ```
 
@@ -46,6 +47,10 @@ Baseline verification uses fixed-time hash comparison and reports additions, rem
 `SemanticAnalyzer` treats every server-provided name, description, schema, and annotation as untrusted data. It applies bounded regular expressions and structural JSON checks, decodes only constrained base64 candidates, and emits findings that identify the affected tool without repeating the matched instruction. Multi-report analysis compares tool ownership and detects both explicit cross-server invocation text and source-to-sink capability composition. Input is capped at 64 reports, 10,000 tools, and 10 MiB per report.
 
 The analyzer does not execute metadata, invoke tools, reconnect to servers, or make AI calls. Its findings alone determine `--fail-on`; any future AI explanation layer must consume already-sanitized findings and cannot change severity, policy, or exit status.
+
+### Authorization auditing
+
+`AuthorizationAuditor` validates RFC 9728 resource metadata and RFC 8414/OIDC authorization-server metadata alongside an explicit evidence contract. Metadata checks are direct; behavioral fields such as audience validation and token forwarding are operator assertions intended to be backed by configuration review or integration tests. The auditor never handles credentials or runs an OAuth flow, preventing an audit from creating clients, issuing tokens, or changing external state.
 
 ## Trust boundaries
 

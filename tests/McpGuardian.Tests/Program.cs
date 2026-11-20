@@ -1,4 +1,5 @@
 using McpGuardian.Baselines;
+using McpGuardian.Authorization;
 using McpGuardian.Cli;
 using McpGuardian.Discovery;
 using McpGuardian.Inspection;
@@ -31,6 +32,9 @@ Run("detects semantic tool attacks", DetectsSemanticToolAttacks);
 Run("detects shadowing and cross-server escalation", DetectsShadowingAndEscalation);
 Run("accepts safe semantic fixture", AcceptsSafeSemanticFixture);
 Run("CLI writes semantic JSON and enforces threshold", CliAnalyzesInspectionReports);
+Run("accepts secure authorization evidence", AcceptsSecureAuthorizationEvidence);
+Run("detects authorization vulnerabilities", DetectsAuthorizationVulnerabilities);
+Run("CLI enforces authorization threshold", CliAuditsAuthorization);
 
 if (failures.Count > 0)
 {
@@ -39,7 +43,7 @@ if (failures.Count > 0)
     return 1;
 }
 
-Console.WriteLine("All 19 tests passed.");
+Console.WriteLine("All 22 tests passed.");
 return 0;
 
 void Run(string name, Action test)
@@ -350,6 +354,32 @@ InspectionReport ReadInspection(string path) =>
     {
         PropertyNameCaseInsensitive = true
     }) ?? throw new InvalidDataException($"Invalid fixture: {path}");
+
+void AcceptsSecureAuthorizationEvidence()
+{
+    var report = new AuthorizationAuditor().Audit(ReadAuthorization("examples/authorization-lab/secure.json"), "secure.json");
+    Assert(report.Findings.Count == 0, "secure authorization evidence produced findings");
+}
+
+void DetectsAuthorizationVulnerabilities()
+{
+    var report = new AuthorizationAuditor().Audit(ReadAuthorization("examples/authorization-lab/vulnerable.json"), "vulnerable.json");
+    foreach (var id in new[] { "MCG301", "MCG302", "MCG303", "MCG304", "MCG305", "MCG306", "MCG307", "MCG308", "MCG309", "MCG310", "MCG311", "MCG312", "MCG313", "MCG314", "MCG315" })
+        Assert(report.Findings.Any(finding => finding.RuleId == id), $"authorization rule {id} did not fire");
+}
+
+void CliAuditsAuthorization()
+{
+    using var output = new StringWriter();
+    using var error = new StringWriter();
+    var code = CliApplication.Run(new[] { "audit-auth", "examples/authorization-lab/vulnerable.json", "--format", "json", "--fail-on", "high" }, output, error);
+    Assert(code == 1, "authorization CLI did not enforce threshold");
+    Assert(output.ToString().Contains("MCG309", StringComparison.Ordinal), "authorization JSON omitted token passthrough finding");
+}
+
+AuthorizationAuditInput ReadAuthorization(string path) =>
+    System.Text.Json.JsonSerializer.Deserialize<AuthorizationAuditInput>(File.ReadAllText(path), new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+    ?? throw new InvalidDataException($"Invalid authorization fixture: {path}");
 
 Queue<string> Responses(params string[] values) => new(values);
 

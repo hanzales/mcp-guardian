@@ -8,7 +8,7 @@ Security scanner and policy foundation for the Model Context Protocol.
 
 MCP Guardian audits MCP client configuration before a server is trusted. It detects risky package resolution, embedded credentials, overly broad filesystem access, shell-based launchers, dangerous flags, and unencrypted remote transports. Reports can be emitted as text, JSON, or SARIF and enforced in CI.
 
-Version `0.4` adds deterministic semantic analysis for tool poisoning, shadowing, cross-server escalation, suspicious Unicode or encoded instructions, and annotation/schema inconsistencies.
+Version `0.5` adds a deterministic MCP authorization evidence auditor for OAuth metadata, PKCE, resource/audience binding, redirect safety, token passthrough, and HTTP hardening.
 
 > [!IMPORTANT]
 > MCP Guardian reduces known configuration risks; it does not prove that an MCP server is safe. Review server provenance, source code, requested capabilities, authorization behavior, and runtime activity.
@@ -27,6 +27,7 @@ Version `0.4` adds deterministic semantic analysis for tool poisoning, shadowing
 - Bounded inspection time, response sizes, pagination, redirects, and child-process lifetime
 - Offline semantic analysis of one or more inspection reports
 - MCP Security Lab fixtures for safe, poisoned, and cross-server attack surfaces
+- Authorization evidence auditing with 15 stable OAuth/MCP security rules
 - Dependency-free runtime and test runner
 - Packaged as a .NET global tool
 
@@ -185,6 +186,19 @@ mcp-guardian analyze \
 ```
 
 Semantic checks are deterministic and offline. AI-assisted explanations remain a future optional layer and will never determine policy or exit codes.
+
+### Audit authorization evidence
+
+Create an evidence document using [`examples/authorization-lab/secure.json`](examples/authorization-lab/secure.json) as the schema, then run:
+
+```bash
+mcp-guardian audit-auth authorization-evidence.json --fail-on high
+mcp-guardian audit-auth authorization-evidence.json --format json
+```
+
+The auditor validates RFC 9728 Protected Resource Metadata, authorization-server issuer binding, HTTPS endpoints, PKCE `S256`, canonical resource indicators, audience validation evidence, redirect URI safety, registration mechanisms, token passthrough, mix-up protection, CORS, host allowlists, rate limiting, and secret-safe logging guidance.
+
+It is deliberately passive: it does not request authorization codes, create clients, submit tokens, or probe authenticated endpoints. Boolean policy fields are implementation evidence supplied by the operator and should be backed by configuration or tests.
 
 ## Output formats
 

@@ -115,6 +115,19 @@ mcp-guardian analyze \
 
 The safe fixture exits `0`; the vulnerable pair exits `1`. AI-assisted explanations are not enabled in v0.4, so analysis requires no API, account, network connection, or model trust.
 
+## Audit MCP authorization evidence
+
+Copy the secure authorization-lab fixture and replace its example values with reviewed metadata and implementation evidence:
+
+```bash
+cp examples/authorization-lab/secure.json authorization-evidence.json
+mcp-guardian audit-auth authorization-evidence.json --fail-on high
+```
+
+The `protectedResourceMetadata` and `authorizationServerMetadata` objects should be exact documents obtained through the MCP discovery flow. The remaining fields record implementation evidence for behavior that static metadata cannot prove, including audience validation, resource parameters, token forwarding, issuer validation, rate limiting, CORS, host validation, and secret-safe logging.
+
+This command is passive and offline. It never performs OAuth registration, redirects a browser, exchanges a code, submits a token, or treats self-attested evidence as runtime proof. Keep tokens, authorization codes, client secrets, and user data out of the evidence file.
+
 ## Severity policies
 
 ```bash
