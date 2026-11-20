@@ -91,6 +91,30 @@ mcp-guardian inspect .mcp.json --server remote \
 
 Timeouts and response limits apply to each exchange. HTTP redirects are rejected, stdio stderr is drained without retention, and child processes are terminated when inspection succeeds or fails. Run untrusted servers in an OS-level sandbox or disposable environment; Guardian does not provide process isolation.
 
+## Analyze semantic attack surfaces
+
+The `analyze` command consumes JSON reports produced by `inspect`. It is offline and does not reconnect to MCP servers:
+
+```bash
+mcp-guardian analyze artifacts/server-a.json
+mcp-guardian analyze artifacts/server-a.json artifacts/server-b.json --fail-on high
+mcp-guardian analyze artifacts/*.json --format json --output artifacts/semantic-report.json
+```
+
+Supplying multiple reports enables tool-name shadowing and cross-server data-flow checks. Findings describe the indicator without reproducing untrusted instructions. Treat them as review signals: descriptions and annotations are untrusted metadata, and a clean report cannot prove that implementation behavior is safe.
+
+The repository includes regression fixtures:
+
+```bash
+mcp-guardian analyze examples/security-lab/safe-inspection.json --fail-on low
+mcp-guardian analyze \
+  examples/security-lab/poisoned-inspection.json \
+  examples/security-lab/shadow-inspection.json \
+  --fail-on high
+```
+
+The safe fixture exits `0`; the vulnerable pair exits `1`. AI-assisted explanations are not enabled in v0.4, so analysis requires no API, account, network connection, or model trust.
+
 ## Severity policies
 
 ```bash

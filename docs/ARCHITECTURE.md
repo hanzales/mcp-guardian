@@ -1,6 +1,6 @@
 # Architecture
 
-MCP Guardian `0.3` is a dependency-free .NET 10 command-line application. Static analysis is deterministic: the same configuration produces the same findings and server fingerprints regardless of model availability. Live inspection is isolated behind an explicit command and records server-provided state.
+MCP Guardian `0.4` is a dependency-free .NET 10 command-line application. Static and semantic analysis are deterministic. Live inspection is isolated behind an explicit command and records server-provided state; later semantic analysis operates offline on those reports.
 
 ## Components
 
@@ -11,6 +11,7 @@ CLI
 ├── Baselines ── canonicalizes and fingerprints server definitions
 ├── Inspection ─ negotiates bounded stdio or Streamable HTTP sessions
 ├── Capabilities exports metadata and fingerprints tool definitions
+├── Semantics ── detects metadata attacks and cross-server composition risks
 └── Reporters ── writes text, JSON, or SARIF
 ```
 
@@ -39,6 +40,12 @@ Baseline verification uses fixed-time hash comparison and reports additions, rem
 `ServerConfigReader` selects one named server without interpolating configuration values. `StdioMcpTransport` starts the configured executable directly without a shell, exchanges newline-delimited JSON-RPC messages, drains stderr without retaining it, and kills the complete process tree during cleanup. `HttpMcpTransport` sends MCP POST requests, accepts JSON or SSE responses, preserves the negotiated session ID and protocol version, and disables redirects.
 
 `CapabilityInspector` performs `initialize`, sends `notifications/initialized`, and follows advertised `tools/list`, `resources/list`, and `prompts/list` pagination. Each response has a byte limit and timeout, and each list has a 100-page limit. Tool definitions are canonicalized with sorted object keys and fingerprinted with SHA-256. `CapabilityBaselineService` compares fingerprints in fixed time and reports added, removed, and modified tools.
+
+### Semantic analysis
+
+`SemanticAnalyzer` treats every server-provided name, description, schema, and annotation as untrusted data. It applies bounded regular expressions and structural JSON checks, decodes only constrained base64 candidates, and emits findings that identify the affected tool without repeating the matched instruction. Multi-report analysis compares tool ownership and detects both explicit cross-server invocation text and source-to-sink capability composition. Input is capped at 64 reports, 10,000 tools, and 10 MiB per report.
+
+The analyzer does not execute metadata, invoke tools, reconnect to servers, or make AI calls. Its findings alone determine `--fail-on`; any future AI explanation layer must consume already-sanitized findings and cannot change severity, policy, or exit status.
 
 ## Trust boundaries
 

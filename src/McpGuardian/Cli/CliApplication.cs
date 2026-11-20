@@ -5,11 +5,13 @@ using McpGuardian.Discovery;
 using McpGuardian.Inspection;
 using McpGuardian.Models;
 using McpGuardian.Scanning;
+using McpGuardian.Semantics;
 
 namespace McpGuardian.Cli;
 
 public static class CliApplication
 {
+    private const long MaxInspectionReportBytes = 10 * 1024 * 1024;
     public static int Run(string[] args, TextWriter output, TextWriter error)
         => RunAsync(args, output, error).GetAwaiter().GetResult();
 
@@ -29,6 +31,7 @@ public static class CliApplication
                 "discover" => RunDiscover(args, output),
                 "baseline" => RunBaseline(args, output, error),
                 "inspect" => await RunInspectAsync(args, output, error),
+                "analyze" => RunAnalyze(args, output, error),
                 "version" or "--version" => RunVersion(output),
                 _ => UsageError($"Unknown command '{args[0]}'.", error)
             };
@@ -40,6 +43,44 @@ public static class CliApplication
             error.WriteLine($"Command failed: {exception.Message}");
             return 2;
         }
+    }
+
+    private static int RunAnalyze(string[] args, TextWriter output, TextWriter error)
+    {
+        var paths = args.Skip(1).TakeWhile(argument => !argument.StartsWith('-')).ToArray();
+        if (paths.Length == 0) return UsageError("Expected: analyze <inspection.json> [more reports...].", error);
+        var format = ReadOption(args, "--format")?.ToLowerInvariant() ?? "text";
+        if (format is not ("text" or "json")) return UsageError("--format must be text or json.", error);
+        var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        var reports = paths.Select(path => ReadInspectionReport(path, options))
+            .ToArray();
+        var report = new SemanticAnalyzer().Analyze(reports, paths.Select(Path.GetFullPath).ToArray());
+
+        var outputPath = ReadOption(args, "--output");
+        TextWriter destination = output;
+        StreamWriter? fileWriter = null;
+        if (outputPath is not null)
+        {
+            EnsureParentDirectory(outputPath);
+            fileWriter = new StreamWriter(outputPath, false);
+            destination = fileWriter;
+        }
+        try
+        {
+            if (format == "json") SemanticReportWriter.WriteJson(report, destination);
+            else SemanticReportWriter.WriteText(report, destination);
+        }
+        finally
+        {
+            fileWriter?.Dispose();
+        }
+        if (outputPath is not null) output.WriteLine($"Semantic report written to {Path.GetFullPath(outputPath)}");
+
+        var thresholdValue = ReadOption(args, "--fail-on");
+        if (thresholdValue is null) return 0;
+        if (!Enum.TryParse<Severity>(thresholdValue, true, out var threshold) || threshold == Severity.Info)
+            return UsageError("--fail-on must be low, medium, high, or critical.", error);
+        return report.HasAtLeast(threshold) ? 1 : 0;
     }
 
     private static async Task<int> RunInspectAsync(string[] args, TextWriter output, TextWriter error)
@@ -289,6 +330,15 @@ public static class CliApplication
         return parsed;
     }
 
+    private static InspectionReport ReadInspectionReport(string path, JsonSerializerOptions options)
+    {
+        var length = new FileInfo(path).Length;
+        if (length > MaxInspectionReportBytes)
+            throw new InvalidDataException($"Inspection report exceeds the {MaxInspectionReportBytes}-byte limit: {path}");
+        return JsonSerializer.Deserialize<InspectionReport>(File.ReadAllText(path), options)
+               ?? throw new InvalidDataException($"Inspection report is empty: {path}");
+    }
+
     private static bool HasFlag(IEnumerable<string> args, params string[] names) =>
         args.Any(arg => names.Contains(arg, StringComparer.OrdinalIgnoreCase));
 
@@ -324,6 +374,9 @@ public static class CliApplication
                                   [--format text|json] [--output <file>]
                                   [--timeout <seconds>] [--max-response-bytes <bytes>]
                                   [--save-baseline <file> | --baseline <file>]
+              mcp-guardian analyze <inspection.json> [more reports...]
+                                  [--format text|json] [--output <file>]
+                                  [--fail-on low|medium|high|critical]
               mcp-guardian version
 
             Exit codes:

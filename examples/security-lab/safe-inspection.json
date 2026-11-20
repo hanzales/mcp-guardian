@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "source": "safe-fixture.json",
+  "server": "safe-server",
+  "transport": "fixture",
+  "inspectedAt": "2026-11-20T00:00:00Z",
+  "protocolVersion": "2025-11-25",
+  "serverInfo": { "name": "safe-server", "version": "1.0.0" },
+  "capabilities": { "tools": true, "resources": false, "prompts": false, "logging": false, "experimental": [] },
+  "tools": [
+    {
+      "name": "project.search",
+      "description": "Search public project documentation.",
+      "definition": {
+        "name": "project.search",
+        "description": "Search public project documentation.",
+        "inputSchema": { "type": "object", "properties": { "query": { "type": "string" } }, "required": ["query"] },
+        "annotations": { "readOnlyHint": true, "destructiveHint": false }
+      },
+      "fingerprint": "1111111111111111111111111111111111111111111111111111111111111111"
+    }
+  ],
+  "resources": [],
+  "prompts": [],
+  "warnings": []
+}

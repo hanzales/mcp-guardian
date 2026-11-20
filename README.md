@@ -8,7 +8,7 @@ Security scanner and policy foundation for the Model Context Protocol.
 
 MCP Guardian audits MCP client configuration before a server is trusted. It detects risky package resolution, embedded credentials, overly broad filesystem access, shell-based launchers, dangerous flags, and unencrypted remote transports. Reports can be emitted as text, JSON, or SARIF and enforced in CI.
 
-Version `0.3` adds explicit live capability inspection over stdio and Streamable HTTP, paginated capability export, canonical tool fingerprints, and tool-schema drift detection.
+Version `0.4` adds deterministic semantic analysis for tool poisoning, shadowing, cross-server escalation, suspicious Unicode or encoded instructions, and annotation/schema inconsistencies.
 
 > [!IMPORTANT]
 > MCP Guardian reduces known configuration risks; it does not prove that an MCP server is safe. Review server provenance, source code, requested capabilities, authorization behavior, and runtime activity.
@@ -25,6 +25,8 @@ Version `0.3` adds explicit live capability inspection over stdio and Streamable
 - Protocol, server, and capability inventory with tools, resources, and prompts export
 - Canonical tool fingerprints with added, removed, and modified tool detection
 - Bounded inspection time, response sizes, pagination, redirects, and child-process lifetime
+- Offline semantic analysis of one or more inspection reports
+- MCP Security Lab fixtures for safe, poisoned, and cross-server attack surfaces
 - Dependency-free runtime and test runner
 - Packaged as a .NET global tool
 
@@ -157,6 +159,33 @@ Inspection defaults to a 10-second timeout and a 1 MiB limit per response. Overr
 > [!WARNING]
 > Live inspection communicates with untrusted software. Review the static `scan` result first, use an isolated environment, and do not inspect a server with credentials or privileges it does not need. Guardian inventories metadata; it never calls an advertised tool.
 
+### Analyze the semantic attack surface
+
+Run semantic analysis against one inspection report or compare multiple servers:
+
+```bash
+mcp-guardian analyze artifacts/filesystem-capabilities.json
+
+mcp-guardian analyze \
+  artifacts/filesystem-capabilities.json \
+  artifacts/network-capabilities.json \
+  --format json \
+  --fail-on high
+```
+
+The analyzer detects instruction-like tool poisoning, invisible Unicode controls, encoded instructions, schema/annotation contradictions, duplicate tool names across servers, explicit cross-server invocation instructions, and risky data-source-to-network-sink combinations. It never executes server-provided text or copies matched instructions into findings.
+
+Try the intentionally vulnerable security lab:
+
+```bash
+mcp-guardian analyze \
+  examples/security-lab/poisoned-inspection.json \
+  examples/security-lab/shadow-inspection.json \
+  --fail-on high
+```
+
+Semantic checks are deterministic and offline. AI-assisted explanations remain a future optional layer and will never determine policy or exit codes.
+
 ## Output formats
 
 | Format | Intended use |
@@ -190,6 +219,12 @@ mcp-guardian scan .mcp.json --format json --output reports/guardian.json
 | `MCG104` | High | Non-local remote MCP endpoints using HTTP |
 | `MCG105` | Critical | Credentials embedded directly in configuration |
 | `MCG106` | Critical | Explicit broad-permission or dangerous flags |
+| `MCG201` | High | Instruction-like tool poisoning text |
+| `MCG202` | Medium–High | Duplicate or conflicting tool names across servers |
+| `MCG203` | Medium | Invisible or bidirectional Unicode controls |
+| `MCG204` | Medium | Encoded instruction-like content |
+| `MCG205` | Medium–High | Cross-server invocation or risky data-flow capabilities |
+| `MCG206` | Medium | Tool schema and annotation inconsistencies |
 
 See [docs/USAGE.md](docs/USAGE.md) for detailed workflows and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design and trust boundaries.
 

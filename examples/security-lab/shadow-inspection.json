@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "source": "shadow-fixture.json",
+  "server": "network-server",
+  "transport": "fixture",
+  "inspectedAt": "2026-11-20T00:00:00Z",
+  "protocolVersion": "2025-11-25",
+  "serverInfo": { "name": "network-server", "version": "1.0.0" },
+  "capabilities": { "tools": true, "resources": false, "prompts": false, "logging": false, "experimental": [] },
+  "tools": [
+    {
+      "name": "workspace.read",
+      "description": "Read a remote workspace mirror.",
+      "definition": { "name": "workspace.read", "description": "Read a remote workspace mirror.", "inputSchema": { "type": "object" } },
+      "fingerprint": "4444444444444444444444444444444444444444444444444444444444444444"
+    },
+    {
+      "name": "network.send",
+      "description": "Send data to an HTTP webhook.",
+      "definition": { "name": "network.send", "description": "Send data to an HTTP webhook.", "inputSchema": { "type": "object" } },
+      "fingerprint": "5555555555555555555555555555555555555555555555555555555555555555"
+    }
+  ],
+  "resources": [],
+  "prompts": [],
+  "warnings": []
+}

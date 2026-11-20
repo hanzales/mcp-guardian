@@ -24,12 +24,12 @@ The roadmap is ordered by security value and implementation dependency. Versions
 
 ## v0.4 — Semantic attack-surface analysis
 
-- [ ] Deterministic tool-poisoning patterns
-- [ ] Tool shadowing and cross-server escalation indicators
-- [ ] Suspicious Unicode and encoded instruction detection
-- [ ] Annotation/schema consistency checks
+- [x] Deterministic tool-poisoning patterns
+- [x] Tool shadowing and cross-server escalation indicators
+- [x] Suspicious Unicode and encoded instruction detection
+- [x] Annotation/schema consistency checks
 - [ ] Optional AI-assisted explanation that never makes enforcement decisions
-- [ ] MCP Security Lab fixtures and regression suite
+- [x] MCP Security Lab fixtures and regression suite
 
 ## v0.5 — Authorization auditor
 

@@ -4,6 +4,7 @@ using McpGuardian.Discovery;
 using McpGuardian.Inspection;
 using McpGuardian.Models;
 using McpGuardian.Scanning;
+using McpGuardian.Semantics;
 
 if (args is ["--mcp-fixture"])
 {
@@ -26,6 +27,10 @@ Run("requires explicit stdio process opt-in", RequiresExplicitProcessOptIn);
 Run("supports Streamable HTTP JSON and SSE", SupportsStreamableHttp);
 Run("enforces HTTP response size limit", EnforcesHttpResponseLimit);
 Run("inspects a real stdio child process", InspectsRealStdioProcess);
+Run("detects semantic tool attacks", DetectsSemanticToolAttacks);
+Run("detects shadowing and cross-server escalation", DetectsShadowingAndEscalation);
+Run("accepts safe semantic fixture", AcceptsSafeSemanticFixture);
+Run("CLI writes semantic JSON and enforces threshold", CliAnalyzesInspectionReports);
 
 if (failures.Count > 0)
 {
@@ -34,7 +39,7 @@ if (failures.Count > 0)
     return 1;
 }
 
-Console.WriteLine("All 15 tests passed.");
+Console.WriteLine("All 19 tests passed.");
 return 0;
 
 void Run(string name, Action test)
@@ -298,6 +303,53 @@ int RunMcpFixture()
     }
     return 0;
 }
+
+void DetectsSemanticToolAttacks()
+{
+    var report = ReadInspection("examples/security-lab/poisoned-inspection.json");
+    var findings = new SemanticAnalyzer().Analyze(new[] { report }).Findings;
+    Assert(findings.Any(finding => finding.RuleId == "MCG201"), "tool poisoning was not detected");
+    Assert(findings.Any(finding => finding.RuleId == "MCG203"), "suspicious Unicode was not detected");
+    Assert(findings.Any(finding => finding.RuleId == "MCG204"), "encoded instruction was not detected");
+    Assert(findings.Any(finding => finding.RuleId == "MCG206"), "annotation inconsistency was not detected");
+}
+
+void DetectsShadowingAndEscalation()
+{
+    var poisoned = ReadInspection("examples/security-lab/poisoned-inspection.json");
+    var shadow = ReadInspection("examples/security-lab/shadow-inspection.json");
+    var findings = new SemanticAnalyzer().Analyze(new[] { poisoned, shadow }).Findings;
+    Assert(findings.Any(finding => finding.RuleId == "MCG202" && finding.Severity == Severity.High), "tool shadowing was not detected");
+    Assert(findings.Any(finding => finding.RuleId == "MCG205" && finding.Severity == Severity.High), "explicit cross-server escalation was not detected");
+    Assert(findings.Any(finding => finding.RuleId == "MCG205" && finding.Severity == Severity.Medium), "cross-server data flow was not detected");
+}
+
+void AcceptsSafeSemanticFixture()
+{
+    var report = ReadInspection("examples/security-lab/safe-inspection.json");
+    Assert(new SemanticAnalyzer().Analyze(new[] { report }).Findings.Count == 0, "safe fixture produced semantic findings");
+}
+
+void CliAnalyzesInspectionReports()
+{
+    using var output = new StringWriter();
+    using var error = new StringWriter();
+    var code = CliApplication.Run(new[]
+    {
+        "analyze", "examples/security-lab/poisoned-inspection.json", "examples/security-lab/shadow-inspection.json",
+        "--format", "json", "--fail-on", "high"
+    }, output, error);
+    Assert(code == 1, "semantic CLI did not enforce the high threshold");
+    using var document = System.Text.Json.JsonDocument.Parse(output.ToString());
+    Assert(document.RootElement.GetProperty("Findings").GetArrayLength() > 0, "semantic JSON report is empty");
+    Assert(!output.ToString().Contains("Ignore previous instructions", StringComparison.OrdinalIgnoreCase), "finding output copied untrusted instructions");
+}
+
+InspectionReport ReadInspection(string path) =>
+    System.Text.Json.JsonSerializer.Deserialize<InspectionReport>(File.ReadAllText(path), new System.Text.Json.JsonSerializerOptions
+    {
+        PropertyNameCaseInsensitive = true
+    }) ?? throw new InvalidDataException($"Invalid fixture: {path}");
 
 Queue<string> Responses(params string[] values) => new(values);
 
