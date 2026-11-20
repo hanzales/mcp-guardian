@@ -128,6 +128,18 @@ The `protectedResourceMetadata` and `authorizationServerMetadata` objects should
 
 This command is passive and offline. It never performs OAuth registration, redirects a browser, exchanges a code, submits a token, or treats self-attested evidence as runtime proof. Keep tokens, authorization codes, client secrets, and user data out of the evidence file.
 
+## Protect a stdio server with the runtime gateway
+
+```bash
+mcp-guardian gateway .mcp.json --server filesystem \
+  --policy examples/gateway/policy.json --allow-process \
+  --audit .mcp-guardian-audit.jsonl
+```
+
+Configure the MCP client to launch this gateway command instead of launching the underlying server directly. The gateway communicates over stdin/stdout, starts the configured command without a shell, and keeps diagnostics and audit data off the protocol stream.
+
+Policy actions are `allow`, `deny`, and `approval`. In v0.6, `approval` is fail-closed and returns an approval-required JSON-RPC error; it cannot yet resume a call. Paths must remain under an allowlisted root and URL arguments must target an allowlisted host. Audit records store only argument hashes and chained event hashes, not raw arguments.
+
 ## Severity policies
 
 ```bash

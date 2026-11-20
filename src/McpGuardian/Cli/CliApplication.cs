@@ -4,6 +4,7 @@ using McpGuardian.Baselines;
 using McpGuardian.Authorization;
 using McpGuardian.Discovery;
 using McpGuardian.Inspection;
+using McpGuardian.Gateway;
 using McpGuardian.Models;
 using McpGuardian.Scanning;
 using McpGuardian.Semantics;
@@ -34,6 +35,7 @@ public static class CliApplication
                 "inspect" => await RunInspectAsync(args, output, error),
                 "analyze" => RunAnalyze(args, output, error),
                 "audit-auth" => RunAuthorizationAudit(args, output, error),
+                "gateway" => await RunGatewayAsync(args, output, error),
                 "version" or "--version" => RunVersion(output),
                 _ => UsageError($"Unknown command '{args[0]}'.", error)
             };
@@ -45,6 +47,19 @@ public static class CliApplication
             error.WriteLine($"Command failed: {exception.Message}");
             return 2;
         }
+    }
+
+    private static async Task<int> RunGatewayAsync(string[] args, TextWriter output, TextWriter error)
+    {
+        if (args.Length < 2 || args[1].StartsWith('-')) return UsageError("Expected: gateway <config> --server <name> --policy <file> --allow-process.", error);
+        var serverName = ReadOption(args, "--server");
+        var policyPath = ReadOption(args, "--policy");
+        if (serverName is null || policyPath is null) return UsageError("--server and --policy are required.", error);
+        if (!HasFlag(args, "--allow-process")) return UsageError("Gateway starts the configured process. Re-run with --allow-process to opt in.", error);
+        var server = ServerConfigReader.Read(args[1], serverName);
+        var policy = JsonSerializer.Deserialize<GatewayPolicy>(File.ReadAllText(policyPath), new JsonSerializerOptions { PropertyNameCaseInsensitive = true }) ?? throw new InvalidDataException("Gateway policy is empty.");
+        var audit = ReadOption(args, "--audit") ?? ".mcp-guardian-audit.jsonl";
+        return await new StdioGateway().RunAsync(server, policy, audit, Console.In, output);
     }
 
     private static int RunAuthorizationAudit(string[] args, TextWriter output, TextWriter error)
@@ -397,6 +412,8 @@ public static class CliApplication
                                   [--fail-on low|medium|high|critical]
               mcp-guardian audit-auth <evidence.json> [--format text|json]
                                   [--fail-on low|medium|high|critical]
+              mcp-guardian gateway <config> --server <name> --policy <file>
+                                  --allow-process [--audit <jsonl>]
               mcp-guardian version
 
             Exit codes:

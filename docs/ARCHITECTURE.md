@@ -1,6 +1,6 @@
 # Architecture
 
-MCP Guardian `0.5` is a dependency-free .NET 10 command-line application. Static, semantic, and authorization evidence analysis are deterministic. Live inspection is isolated behind an explicit command; later analysis operates offline.
+MCP Guardian `0.6` is a dependency-free .NET 10 command-line application. Static, semantic, and authorization evidence analysis are deterministic. The runtime gateway applies deterministic policy before forwarding stdio MCP calls.
 
 ## Components
 
@@ -13,6 +13,7 @@ CLI
 ├── Capabilities exports metadata and fingerprints tool definitions
 ├── Semantics ── detects metadata attacks and cross-server composition risks
 ├── Authorization validates OAuth metadata and implementation evidence
+├── Gateway ───── enforces runtime tool, argument, destination, and limit policy
 └── Reporters ── writes text, JSON, or SARIF
 ```
 
@@ -51,6 +52,12 @@ The analyzer does not execute metadata, invoke tools, reconnect to servers, or m
 ### Authorization auditing
 
 `AuthorizationAuditor` validates RFC 9728 resource metadata and RFC 8414/OIDC authorization-server metadata alongside an explicit evidence contract. Metadata checks are direct; behavioral fields such as audience validation and token forwarding are operator assertions intended to be backed by configuration review or integration tests. The auditor never handles credentials or runs an OAuth flow, preventing an audit from creating clients, issuing tokens, or changing external state.
+
+### Runtime gateway
+
+`PolicyEngine` is default-deny and evaluates server/tool action, path roots, network destinations, and a sliding request-rate window. `StdioGateway` launches the configured executable directly, forwards JSON-RPC messages, blocks denied calls locally, and bounds requests, responses, and response time. `AuditChainWriter` omits raw arguments, records their SHA-256 hash, and links each event to the previous hash so later edits are detectable.
+
+The initial gateway is intentionally limited to sequential stdio traffic. Approval policies fail closed but do not yet provide a continuation token. Streamable HTTP proxying, concurrent request multiplexing, cryptographically keyed audit checkpoints, and interactive one-time approval remain future work.
 
 ## Trust boundaries
 

@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "defaultAction": "deny",
+  "servers": {
+    "filesystem": {
+      "tools": { "read_file": "allow", "write_file": "approval", "delete_file": "deny" },
+      "allowedPathRoots": ["/workspace/project"],
+      "allowedNetworkHosts": ["api.example.com"]
+    }
+  },
+  "limits": { "requestsPerMinute": 60, "maxRequestBytes": 262144, "maxResponseBytes": 1048576, "timeoutSeconds": 10 }
+}

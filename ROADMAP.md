@@ -41,12 +41,12 @@ The roadmap is ordered by security value and implementation dependency. Versions
 
 ## v1.0 — Runtime policy gateway
 
-- [ ] Per-server and per-tool allow/deny policies
-- [ ] Argument and filesystem path constraints
+- [x] Per-server and per-tool allow/deny policies
+- [x] Argument and filesystem path constraints
 - [ ] Approval gates for sensitive operations
-- [ ] Secret redaction and tamper-evident audit events
-- [ ] Network destination allowlists
-- [ ] Rate, timeout, request-size, and response-size limits
+- [x] Secret redaction and tamper-evident audit events
+- [x] Network destination allowlists
+- [x] Rate, timeout, request-size, and response-size limits
 - [ ] Reusable GitHub Action and signed release binaries
 - [ ] MCP server interface for Guardian's safe analysis tools
 

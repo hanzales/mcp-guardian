@@ -3,6 +3,7 @@ using McpGuardian.Authorization;
 using McpGuardian.Cli;
 using McpGuardian.Discovery;
 using McpGuardian.Inspection;
+using McpGuardian.Gateway;
 using McpGuardian.Models;
 using McpGuardian.Scanning;
 using McpGuardian.Semantics;
@@ -35,6 +36,10 @@ Run("CLI writes semantic JSON and enforces threshold", CliAnalyzesInspectionRepo
 Run("accepts secure authorization evidence", AcceptsSecureAuthorizationEvidence);
 Run("detects authorization vulnerabilities", DetectsAuthorizationVulnerabilities);
 Run("CLI enforces authorization threshold", CliAuditsAuthorization);
+Run("gateway enforces tool, path, and network policy", GatewayEnforcesPolicy);
+Run("gateway requires approval without executing", GatewayRequiresApproval);
+Run("gateway audit chain does not log arguments", GatewayAuditRedactsArguments);
+Run("gateway proxies an allowed stdio tool call", GatewayProxiesAllowedCall);
 
 if (failures.Count > 0)
 {
@@ -43,7 +48,7 @@ if (failures.Count > 0)
     return 1;
 }
 
-Console.WriteLine("All 22 tests passed.");
+Console.WriteLine("All 26 tests passed.");
 return 0;
 
 void Run(string name, Action test)
@@ -380,6 +385,69 @@ void CliAuditsAuthorization()
 AuthorizationAuditInput ReadAuthorization(string path) =>
     System.Text.Json.JsonSerializer.Deserialize<AuthorizationAuditInput>(File.ReadAllText(path), new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true })
     ?? throw new InvalidDataException($"Invalid authorization fixture: {path}");
+
+void GatewayEnforcesPolicy()
+{
+    var engine = new PolicyEngine(GatewayPolicyFixture());
+    var allowed = engine.Evaluate("filesystem", "read_file", System.Text.Json.JsonSerializer.SerializeToElement(new { path = "/workspace/project/README.md" }), DateTimeOffset.UtcNow);
+    var pathDenied = engine.Evaluate("filesystem", "read_file", System.Text.Json.JsonSerializer.SerializeToElement(new { path = "/etc/passwd" }), DateTimeOffset.UtcNow);
+    var networkDenied = engine.Evaluate("filesystem", "read_file", System.Text.Json.JsonSerializer.SerializeToElement(new { url = "https://evil.example/data" }), DateTimeOffset.UtcNow);
+    Assert(allowed.Allowed, "allowlisted gateway call was denied");
+    Assert(!pathDenied.Allowed && pathDenied.Reason.Contains("filesystem", StringComparison.Ordinal), "path escape was allowed");
+    Assert(!networkDenied.Allowed && networkDenied.Reason.Contains("network", StringComparison.Ordinal), "network escape was allowed");
+}
+
+void GatewayRequiresApproval()
+{
+    var decision = new PolicyEngine(GatewayPolicyFixture()).Evaluate("filesystem", "write_file", System.Text.Json.JsonSerializer.SerializeToElement(new { path = "/workspace/project/a.txt" }), DateTimeOffset.UtcNow);
+    Assert(!decision.Allowed && decision.ApprovalRequired, "approval policy did not stop execution");
+}
+
+void GatewayAuditRedactsArguments()
+{
+    WithTempDirectory(directory =>
+    {
+        var path = Path.Combine(directory, "audit.jsonl");
+        using (var audit = new AuditChainWriter(path))
+            audit.Write("filesystem", "read_file", new PolicyDecision(true, false, "allowed"), System.Text.Json.JsonSerializer.SerializeToElement(new { token = "literal-secret-value" }));
+        using (var audit = new AuditChainWriter(path))
+            audit.Write("filesystem", "read_file", new PolicyDecision(false, false, "denied"), System.Text.Json.JsonSerializer.SerializeToElement(new { path = "/tmp/example" }));
+        var text = File.ReadAllText(path);
+        Assert(!text.Contains("literal-secret-value", StringComparison.Ordinal), "audit event logged a secret argument");
+        Assert(text.Contains("argumentHash", StringComparison.Ordinal), "audit event omitted argument hash");
+        var events = File.ReadAllLines(path).Select(line => System.Text.Json.JsonDocument.Parse(line)).ToArray();
+        Assert(events[1].RootElement.GetProperty("payload").GetProperty("previousHash").GetString() == events[0].RootElement.GetProperty("hash").GetString(), "audit hash chain did not continue across sessions");
+        foreach (var item in events) item.Dispose();
+    });
+}
+
+GatewayPolicy GatewayPolicyFixture() => new(1, "deny", new Dictionary<string, ServerPolicy>
+{
+    ["filesystem"] = new(new Dictionary<string, string> { ["read_file"] = "allow", ["write_file"] = "approval" }, new[] { "/workspace/project" }, new[] { "api.example.com" })
+}, new GatewayLimits(60, 262144, 1048576, 10));
+
+void GatewayProxiesAllowedCall()
+{
+    WithTempDirectory(directory =>
+    {
+        var executable = Environment.ProcessPath ?? throw new InvalidOperationException("Process path is unavailable.");
+        var assembly = Environment.GetCommandLineArgs()[0];
+        var server = new ServerDefinition("fixture", executable, new[] { assembly, "--mcp-fixture" }, new Dictionary<string, string>(), null, new Dictionary<string, string>());
+        var policy = new GatewayPolicy(1, "deny", new Dictionary<string, ServerPolicy>
+        {
+            ["fixture"] = new(new Dictionary<string, string> { ["fixture.echo"] = "allow" }, Array.Empty<string>(), Array.Empty<string>())
+        }, new GatewayLimits(10, 65536, 65536, 5));
+        var requests = string.Join('\n',
+            "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}",
+            "{\"jsonrpc\":\"2.0\",\"method\":\"notifications/initialized\",\"params\":{}}",
+            "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"fixture.echo\",\"arguments\":{\"text\":\"hello\"}}}") + "\n";
+        using var input = new StringReader(requests);
+        using var output = new StringWriter();
+        var code = new StdioGateway().RunAsync(server, policy, Path.Combine(directory, "audit.jsonl"), input, output).GetAwaiter().GetResult();
+        Assert(code == 0, "gateway session failed");
+        Assert(output.ToString().Contains("\"id\":2", StringComparison.Ordinal), "allowed tool response was not proxied");
+    });
+}
 
 Queue<string> Responses(params string[] values) => new(values);
 

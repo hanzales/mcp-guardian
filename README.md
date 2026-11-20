@@ -8,7 +8,7 @@ Security scanner and policy foundation for the Model Context Protocol.
 
 MCP Guardian audits MCP client configuration before a server is trusted. It detects risky package resolution, embedded credentials, overly broad filesystem access, shell-based launchers, dangerous flags, and unencrypted remote transports. Reports can be emitted as text, JSON, or SARIF and enforced in CI.
 
-Version `0.5` adds a deterministic MCP authorization evidence auditor for OAuth metadata, PKCE, resource/audience binding, redirect safety, token passthrough, and HTTP hardening.
+Version `0.6` begins the runtime policy gateway: a bounded stdio proxy with per-server/tool policy, path and network constraints, approval-required blocking, and secret-safe hash-chain audit events.
 
 > [!IMPORTANT]
 > MCP Guardian reduces known configuration risks; it does not prove that an MCP server is safe. Review server provenance, source code, requested capabilities, authorization behavior, and runtime activity.
@@ -28,6 +28,7 @@ Version `0.5` adds a deterministic MCP authorization evidence auditor for OAuth 
 - Offline semantic analysis of one or more inspection reports
 - MCP Security Lab fixtures for safe, poisoned, and cross-server attack surfaces
 - Authorization evidence auditing with 15 stable OAuth/MCP security rules
+- Runtime stdio policy gateway with default-deny policy and resource limits
 - Dependency-free runtime and test runner
 - Packaged as a .NET global tool
 
@@ -199,6 +200,22 @@ mcp-guardian audit-auth authorization-evidence.json --format json
 The auditor validates RFC 9728 Protected Resource Metadata, authorization-server issuer binding, HTTPS endpoints, PKCE `S256`, canonical resource indicators, audience validation evidence, redirect URI safety, registration mechanisms, token passthrough, mix-up protection, CORS, host allowlists, rate limiting, and secret-safe logging guidance.
 
 It is deliberately passive: it does not request authorization codes, create clients, submit tokens, or probe authenticated endpoints. Boolean policy fields are implementation evidence supplied by the operator and should be backed by configuration or tests.
+
+### Run the policy gateway
+
+Start a configured stdio server behind Guardian using the example policy as a template:
+
+```bash
+mcp-guardian gateway .mcp.json \
+  --server filesystem \
+  --policy examples/gateway/policy.json \
+  --allow-process \
+  --audit .mcp-guardian-audit.jsonl
+```
+
+The gateway defaults to deny, intercepts `tools/call`, enforces tool actions, filesystem roots, network hosts, per-minute request limits, request/response sizes, and response timeouts. `approval` rules currently stop execution with JSON-RPC error `-32001`; a secure one-time approval continuation flow remains on the roadmap.
+
+Audit events contain server/tool names, policy decisions, argument hashes, and a SHA-256 hash chain. Raw arguments, tokens, and secret values are never written to the audit file.
 
 ## Output formats
 
