@@ -1,0 +1,95 @@
+name: Release Binaries
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.rid }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        rid:
+          - osx-arm64
+          - osx-x64
+          - linux-x64
+          - win-x64
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish self-contained executable
+        shell: bash
+        env:
+          RID: ${{ matrix.rid }}
+          RELEASE_VERSION: ${{ github.ref_name }}
+        run: |
+          version="${RELEASE_VERSION#v}"
+          dotnet publish src/McpGuardian/McpGuardian.csproj \
+            --configuration Release \
+            --runtime "$RID" \
+            --self-contained true \
+            --output "publish/$RID" \
+            -p:Version="$version" \
+            -p:PublishSingleFile=true \
+            -p:PublishTrimmed=false \
+            -p:UseAppHost=true \
+            -p:DebugType=None \
+            -p:DebugSymbols=false
+
+          mkdir -p artifacts
+          if [[ "$RID" == win-* ]]; then
+            cp "publish/$RID/mcp-guardian.exe" "artifacts/mcp-guardian-$RID.exe"
+          else
+            cp "publish/$RID/mcp-guardian" "artifacts/mcp-guardian-$RID"
+          fi
+
+      - name: Upload executable
+        uses: actions/upload-artifact@v7
+        with:
+          name: mcp-guardian-${{ matrix.rid }}
+          path: artifacts/*
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub release
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: mcp-guardian-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Create release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if [[ "$RELEASE_TAG" == *-* ]]; then
+            gh release create "$RELEASE_TAG" artifacts/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "MCP Guardian $RELEASE_TAG" \
+              --generate-notes \
+              --prerelease \
+              --verify-tag
+          else
+            gh release create "$RELEASE_TAG" artifacts/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "MCP Guardian $RELEASE_TAG" \
+              --generate-notes \
+              --verify-tag
+          fi

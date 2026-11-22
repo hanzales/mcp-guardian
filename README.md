@@ -38,6 +38,16 @@ Version `0.6` begins the runtime policy gateway: a bounded stdio proxy with per-
 
 The repository pins SDK `10.0.404` through [`global.json`](global.json). A newer compatible .NET 10 feature band can be used through `rollForward`.
 
+Confirm that the active SDK is .NET 10 before installing the tool:
+
+```bash
+dotnet --version
+dotnet --list-sdks
+```
+
+MCP Guardian is a .NET tool, not a project library. Do not install it through
+Rider's NuGet Packages window or add it as a `<PackageReference>`.
+
 ## Quick start
 
 ```bash
@@ -59,27 +69,81 @@ dotnet run --project src/McpGuardian -- \
   scan .mcp.json --fail-on high
 ```
 
-## Install as a local .NET tool
+## Install
 
-Until packages are published to NuGet, build and install directly from the repository:
+Install the preview from NuGet.org as a global tool:
 
 ```bash
-dotnet pack src/McpGuardian/McpGuardian.csproj \
-  --configuration Release \
-  --output ./artifacts
-
-dotnet tool install --global \
-  --add-source ./artifacts \
-  McpGuardian.Tool
+dotnet tool install --global McpGuardian.Tool \
+  --version 0.6.0-preview.2 \
+  --add-source https://api.nuget.org/v3/index.json \
+  --ignore-failed-sources
 ```
 
-Then use it from any directory:
+The explicit source and `--ignore-failed-sources` prevent an unavailable private
+feed from blocking installation. Then use Guardian from any directory:
 
 ```bash
 mcp-guardian version
 mcp-guardian discover
 mcp-guardian scan .mcp.json
 ```
+
+To pin Guardian per repository instead, run these commands at the repository root:
+
+```bash
+dotnet new tool-manifest
+dotnet tool install McpGuardian.Tool \
+  --version 0.6.0-preview.2 \
+  --add-source https://api.nuget.org/v3/index.json \
+  --ignore-failed-sources
+
+dotnet tool run mcp-guardian version
+```
+
+### Standalone downloads
+
+[GitHub Releases](https://github.com/hanzales/mcp-guardian/releases) also provides
+self-contained executables that do not require a separate .NET installation:
+
+- `mcp-guardian-osx-arm64` for Apple Silicon Macs
+- `mcp-guardian-osx-x64` for Intel Macs
+- `mcp-guardian-linux-x64` for 64-bit Linux
+- `mcp-guardian-win-x64.exe` for 64-bit Windows
+
+On macOS or Linux, make the downloaded file executable before running it:
+
+```bash
+chmod +x mcp-guardian-osx-arm64
+./mcp-guardian-osx-arm64 version
+```
+
+### Installation troubleshooting
+
+If installation reports that the package supports `net10.0` but the current
+framework is older, the wrong SDK is active. Check every installed SDK and host:
+
+```bash
+which -a dotnet        # macOS/Linux
+dotnet --version
+dotnet --list-sdks
+```
+
+Install the .NET 10 SDK or place its directory before older installations in
+`PATH`, then open a new terminal. A successful global installation appears in:
+
+```bash
+dotnet tool list --global
+```
+
+If the tool is listed but the `mcp-guardian` command is not found, add the global
+tool directory to `PATH`:
+
+```bash
+export PATH="$HOME/.dotnet/tools:$PATH"
+```
+
+See Microsoft's [.NET tool troubleshooting guide](https://learn.microsoft.com/dotnet/core/tools/troubleshoot-usage-issues) for platform-specific host and PATH diagnostics.
 
 ## Commands
 
@@ -318,7 +382,9 @@ The test project intentionally uses no third-party test framework, keeping resto
 
 ## Roadmap
 
-The next milestones include live MCP capability inspection, tool-schema fingerprinting, tool-poisoning checks, OAuth compliance auditing, and a runtime policy gateway. See [ROADMAP.md](ROADMAP.md).
+The next milestones include secure approval continuation, a reusable GitHub
+Action, signed release binaries, and an MCP interface for Guardian's safe
+analysis tools. See [ROADMAP.md](ROADMAP.md).
 
 ## Responsible disclosure
 
