@@ -36,6 +36,8 @@ public static class CliApplication
                 "analyze" => RunAnalyze(args, output, error),
                 "audit-auth" => RunAuthorizationAudit(args, output, error),
                 "gateway" => await RunGatewayAsync(args, output, error),
+                "doctor" => RunDoctor(args, output),
+                "init" => RunInit(args, output),
                 "version" or "--version" => RunVersion(output),
                 _ => UsageError($"Unknown command '{args[0]}'.", error)
             };
@@ -326,6 +328,118 @@ public static class CliApplication
         return 0;
     }
 
+    private static int RunDoctor(string[] args, TextWriter output)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        var toolDirectory = Path.Combine(home, ".dotnet", "tools");
+        var configurationCount = DiscoverConfigs().Count;
+        var checks = new[]
+        {
+            new DoctorCheck("runtime", Environment.Version.Major >= 10, $".NET {Environment.Version}"),
+            new DoctorCheck("working-directory", Directory.Exists(Directory.GetCurrentDirectory()), Directory.GetCurrentDirectory()),
+            new DoctorCheck("tool-path", Directory.Exists(toolDirectory) ||
+                (Environment.GetEnvironmentVariable("PATH")?.Split(Path.PathSeparator).Any(path =>
+                    string.Equals(Path.GetFullPath(path.TrimEnd(Path.DirectorySeparatorChar)), toolDirectory.TrimEnd(Path.DirectorySeparatorChar), StringComparison.OrdinalIgnoreCase)) ?? false),
+                toolDirectory),
+            new DoctorCheck("configuration-discovery", configurationCount > 0, $"{configurationCount} supported configuration(s) discovered")
+        };
+
+        if (HasFlag(args, "--json"))
+        {
+            output.WriteLine(JsonSerializer.Serialize(new { healthy = checks.All(check => check.Healthy), checks }, new JsonSerializerOptions { WriteIndented = true }));
+        }
+        else
+        {
+            output.WriteLine("MCP Guardian doctor");
+            foreach (var check in checks)
+            {
+                output.WriteLine($"{(check.Healthy ? "✓" : "⚠")} {check.Name}: {check.Detail}");
+            }
+            output.WriteLine(checks.All(check => check.Healthy)
+                ? "Environment looks ready."
+                : "Review the warnings above before relying on CI enforcement.");
+        }
+
+        return checks.All(check => check.Healthy) ? 0 : 1;
+    }
+
+    private static int RunInit(string[] args, TextWriter output)
+    {
+        var force = HasFlag(args, "--force");
+        var root = Path.Combine(Directory.GetCurrentDirectory(), ".mcp-guardian");
+        Directory.CreateDirectory(root);
+
+        var created = new List<string>();
+        CreateFile(Path.Combine(root, "policy.json"), """
+{
+  "version": 1,
+  "defaultAction": "deny",
+  "servers": {},
+  "limits": {
+    "requestsPerMinute": 60,
+    "maxRequestBytes": 1048576,
+    "maxResponseBytes": 1048576,
+    "timeoutSeconds": 30
+  }
+}
+""", force, created);
+        CreateFile(Path.Combine(root, "README.md"), """
+# MCP Guardian project files
+
+- `policy.json` is a default-deny gateway policy template.
+- Create a reviewed configuration baseline with `mcp-guardian baseline create <config>`.
+- Run `mcp-guardian scan --all --fail-on high` before sharing MCP configuration.
+""", force, created);
+
+        if (HasFlag(args, "--github-action"))
+        {
+            var workflow = Path.Combine(Directory.GetCurrentDirectory(), ".github", "workflows", "mcp-guardian.yml");
+            CreateFile(workflow, """
+name: MCP Guardian
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hanzales/mcp-guardian-action@v1
+        with:
+          config: .mcp.json
+          version: 0.6.0-preview.2
+          fail-on: high
+          format: sarif
+          output: artifacts/mcp-guardian.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: artifacts/mcp-guardian.sarif
+""", force, created);
+        }
+
+        output.WriteLine(created.Count == 0
+            ? "MCP Guardian files already exist. Use --force to replace them."
+            : $"Created {created.Count} MCP Guardian file(s):");
+        foreach (var path in created) output.WriteLine($"- {Path.GetRelativePath(Directory.GetCurrentDirectory(), path)}");
+        return 0;
+    }
+
+    private static void CreateFile(string path, string content, bool force, ICollection<string> created)
+    {
+        if (File.Exists(path) && !force) return;
+        EnsureParentDirectory(path);
+        File.WriteAllText(path, content);
+        created.Add(path);
+    }
+
+    private sealed record DoctorCheck(string Name, bool Healthy, string Detail);
+
     private static IReadOnlyList<DiscoveredConfig> DiscoverConfigs() =>
         new ConfigDiscovery().Discover(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -414,6 +528,8 @@ public static class CliApplication
                                   [--fail-on low|medium|high|critical]
               mcp-guardian gateway <config> --server <name> --policy <file>
                                   --allow-process [--audit <jsonl>]
+              mcp-guardian doctor [--json]
+              mcp-guardian init [--github-action] [--force]
               mcp-guardian version
 
             Exit codes:

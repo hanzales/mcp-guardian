@@ -147,6 +147,34 @@ See Microsoft's [.NET tool troubleshooting guide](https://learn.microsoft.com/do
 
 ## Commands
 
+### Diagnose an installation
+
+Use `doctor` to verify the active .NET runtime, tool path, working directory, and
+whether supported MCP configuration files can be discovered:
+
+```bash
+mcp-guardian doctor
+mcp-guardian doctor --json
+```
+
+The command returns exit code `0` when all checks pass and `1` when a warning
+needs review.
+
+### Initialize a repository
+
+Create a default-deny policy template and project guidance in the current
+repository:
+
+```bash
+mcp-guardian init
+mcp-guardian init --github-action
+```
+
+`--github-action` also creates a pull-request workflow using the reusable
+[`mcp-guardian-action`](https://github.com/hanzales/mcp-guardian-action). Existing
+files are preserved; use `--force` only when you intentionally want to replace
+the generated templates.
+
 ### Discover configurations
 
 ```bash

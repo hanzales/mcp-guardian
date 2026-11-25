@@ -40,6 +40,8 @@ Run("gateway enforces tool, path, and network policy", GatewayEnforcesPolicy);
 Run("gateway requires approval without executing", GatewayRequiresApproval);
 Run("gateway audit chain does not log arguments", GatewayAuditRedactsArguments);
 Run("gateway proxies an allowed stdio tool call", GatewayProxiesAllowedCall);
+Run("doctor reports runtime readiness", DoctorReportsRuntimeReadiness);
+Run("init creates project guidance and action", InitCreatesProjectFiles);
 
 if (failures.Count > 0)
 {
@@ -48,7 +50,7 @@ if (failures.Count > 0)
     return 1;
 }
 
-Console.WriteLine("All 26 tests passed.");
+Console.WriteLine("All tests passed.");
 return 0;
 
 void Run(string name, Action test)
@@ -170,6 +172,37 @@ void CliHonorsFailOnThreshold()
         using var error = new StringWriter();
         var exitCode = CliApplication.Run(new[] { "scan", config, "--fail-on", "high" }, output, error);
         Assert(exitCode == 1, "CLI did not fail on a critical finding");
+    });
+}
+
+void DoctorReportsRuntimeReadiness()
+{
+    using var output = new StringWriter();
+    var code = CliApplication.Run(new[] { "doctor" }, output, new StringWriter());
+    Assert(code is 0 or 1, "doctor returned an invalid exit code");
+    Assert(output.ToString().Contains("MCP Guardian doctor", StringComparison.Ordinal), "doctor header was not written");
+}
+
+void InitCreatesProjectFiles()
+{
+    WithTempDirectory(directory =>
+    {
+        var original = Directory.GetCurrentDirectory();
+        try
+        {
+            Directory.SetCurrentDirectory(directory);
+            using var output = new StringWriter();
+            var code = CliApplication.Run(new[] { "init", "--github-action" }, output, new StringWriter());
+            Assert(code == 0, "init did not succeed");
+            Assert(File.Exists(Path.Combine(directory, ".mcp-guardian", "policy.json")), "policy template was not created");
+            Assert(File.Exists(Path.Combine(directory, ".github", "workflows", "mcp-guardian.yml")), "GitHub Action workflow was not created");
+            var second = CliApplication.Run(new[] { "init", "--github-action" }, new StringWriter(), new StringWriter());
+            Assert(second == 0, "init was not idempotent");
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(original);
+        }
     });
 }
 
