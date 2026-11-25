@@ -323,6 +323,21 @@ Write any format to a file with `--output`:
 mcp-guardian scan .mcp.json --format json --output reports/guardian.json
 ```
 
+For a quick human review, the text report is intentionally compact:
+
+```text
+MCP Guardian — .mcp.json
+Risk: CRITICAL | Score: 35/100 | Findings: 2
+
+[CRITICAL] MCG105 Credentials embedded in configuration (analytics)
+  A credential-like value is embedded directly in the configuration.
+  Fix: Move credentials to environment variables or a secret manager.
+
+[HIGH] MCG103 Broad filesystem access (filesystem)
+  The server can access a broad filesystem root.
+  Fix: Restrict filesystem roots to the smallest required project directory.
+```
+
 ## Exit codes
 
 | Code | Meaning |
@@ -387,7 +402,7 @@ jobs:
       - uses: hanzales/mcp-guardian-action@v1
         with:
           config: .mcp.json
-          version: 0.6.0-preview.2
+          version: 0.6.0-preview.3
           fail-on: high
           format: sarif
           output: artifacts/mcp-guardian.sarif
