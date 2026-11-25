@@ -75,7 +75,7 @@ Install the preview from NuGet.org as a global tool:
 
 ```bash
 dotnet tool install --global McpGuardian.Tool \
-  --version 0.6.0-preview.2 \
+  --version 0.6.0-preview.3 \
   --add-source https://api.nuget.org/v3/index.json \
   --ignore-failed-sources
 ```
@@ -94,7 +94,7 @@ To pin Guardian per repository instead, run these commands at the repository roo
 ```bash
 dotnet new tool-manifest
 dotnet tool install McpGuardian.Tool \
-  --version 0.6.0-preview.2 \
+  --version 0.6.0-preview.3 \
   --add-source https://api.nuget.org/v3/index.json \
   --ignore-failed-sources
 

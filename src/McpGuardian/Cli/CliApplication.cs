@@ -412,7 +412,7 @@ jobs:
       - uses: hanzales/mcp-guardian-action@v1
         with:
           config: .mcp.json
-          version: 0.6.0-preview.2
+          version: 0.6.0-preview.3
           fail-on: high
           format: sarif
           output: artifacts/mcp-guardian.sarif
