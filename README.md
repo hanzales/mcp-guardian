@@ -339,7 +339,37 @@ For another repository, build Guardian and run:
     --fail-on high
 ```
 
-A reusable standalone GitHub Action is planned for a later release.
+A reusable standalone action is available at [`hanzales/mcp-guardian-action`](https://github.com/hanzales/mcp-guardian-action):
+
+```yaml
+name: MCP security
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hanzales/mcp-guardian-action@v1
+        with:
+          config: .mcp.json
+          version: 0.6.0-preview.2
+          fail-on: high
+          format: sarif
+          output: artifacts/mcp-guardian.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: artifacts/mcp-guardian.sarif
+```
+
+The action downloads a pinned self-contained release binary and supports Linux x64, macOS x64/arm64, and Windows x64 runners. It does not execute MCP servers or advertised tools.
 
 ## Security model
 
