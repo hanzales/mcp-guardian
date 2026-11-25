@@ -402,6 +402,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
   security-events: write
 
 jobs:
@@ -416,6 +417,7 @@ jobs:
           fail-on: high
           format: sarif
           output: artifacts/mcp-guardian.sarif
+          comment: true
       - uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:

@@ -392,6 +392,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write
   security-events: write
 
 jobs:
@@ -406,13 +407,14 @@ jobs:
           fail-on: high
           format: sarif
           output: artifacts/mcp-guardian.sarif
+          comment: true
       - uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: artifacts/mcp-guardian.sarif
 ```
 
-The action downloads a pinned self-contained release binary and supports Linux x64, macOS x64/arm64, and Windows x64 runners. It does not execute MCP servers or advertised tools.
+The action downloads a pinned self-contained release binary and supports Linux x64, macOS x64/arm64, and Windows x64 runners. With `comment: true`, it adds or updates a compact summary on pull requests. It does not execute MCP servers or advertised tools.
 
 ## Security model
 
