@@ -189,10 +189,11 @@ public static class CliApplication
 
     private static int RunScan(string[] args, TextWriter output, TextWriter error)
     {
-        var format = ReadOption(args, "--format")?.ToLowerInvariant() ?? "text";
-        if (format is not ("text" or "json" or "sarif"))
+        var configuration = ScanConfiguration.Load(ReadOption(args, "--config"));
+        var format = (ReadOption(args, "--format") ?? configuration.Format ?? "text").ToLowerInvariant();
+        if (format is not ("text" or "json" or "sarif" or "html"))
         {
-            return UsageError("--format must be text, json, or sarif.", error);
+            return UsageError("--format must be text, json, sarif, or html.", error);
         }
 
         var targets = HasFlag(args, "--all")
@@ -206,8 +207,15 @@ public static class CliApplication
                 : "Expected a config path or --all.", error);
         }
 
-        var reports = targets.Select(path => new ConfigScanner().Scan(path)).ToArray();
-        var outputPath = ReadOption(args, "--output");
+        var ignoredRules = configuration.IgnoredRules.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var reports = targets.Select(path =>
+        {
+            var report = new ConfigScanner().Scan(path);
+            return ignoredRules.Count == 0
+                ? report
+                : report with { Findings = report.Findings.Where(finding => !ignoredRules.Contains(finding.RuleId)).ToArray() };
+        }).ToArray();
+        var outputPath = ReadOption(args, "--output") ?? configuration.Output;
         TextWriter destination = output;
         StreamWriter? fileWriter = null;
         if (outputPath is not null)
@@ -227,6 +235,9 @@ public static class CliApplication
                 case "sarif":
                     ReportWriter.WriteSarif(reports, destination);
                     break;
+                case "html":
+                    HtmlReportWriter.Write(reports, destination);
+                    break;
                 default:
                     ReportWriter.WriteText(reports, destination);
                     break;
@@ -242,7 +253,7 @@ public static class CliApplication
             output.WriteLine($"Report written to {Path.GetFullPath(outputPath)}");
         }
 
-        var thresholdValue = ReadOption(args, "--fail-on");
+        var thresholdValue = ReadOption(args, "--fail-on") ?? configuration.FailOn;
         if (thresholdValue is null)
         {
             return 0;
@@ -370,6 +381,13 @@ public static class CliApplication
         Directory.CreateDirectory(root);
 
         var created = new List<string>();
+        CreateFile(Path.Combine(Directory.GetCurrentDirectory(), ".mcp-guardian.json"), """
+{
+  "failOn": "high",
+  "format": "text",
+  "ignoredRules": []
+}
+""", force, created);
         CreateFile(Path.Combine(root, "policy.json"), """
 {
   "version": 1,
@@ -387,6 +405,7 @@ public static class CliApplication
 # MCP Guardian project files
 
 - `policy.json` is a default-deny gateway policy template.
+- `../.mcp-guardian.json` configures scan defaults such as severity and ignored rules.
 - Create a reviewed configuration baseline with `mcp-guardian baseline create <config>`.
 - Run `mcp-guardian scan --all --fail-on high` before sharing MCP configuration.
 """, force, created);
@@ -413,7 +432,7 @@ jobs:
       - uses: hanzales/mcp-guardian-action@v1
         with:
           config: .mcp.json
-          version: 0.6.0-preview.3
+          version: 0.6.0-preview.4
           fail-on: high
           format: sarif
           output: artifacts/mcp-guardian.sarif
@@ -514,7 +533,7 @@ jobs:
 
             Usage:
               mcp-guardian discover [--json]
-              mcp-guardian scan <config> [--format text|json|sarif] [--output <file>]
+              mcp-guardian scan <config> [--config <file>] [--format text|json|sarif|html] [--output <file>]
                                          [--fail-on low|medium|high|critical]
               mcp-guardian scan --all [scan options]
               mcp-guardian baseline create <config> [--output <file>]

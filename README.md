@@ -75,7 +75,7 @@ Install the preview from NuGet.org as a global tool:
 
 ```bash
 dotnet tool install --global McpGuardian.Tool \
-  --version 0.6.0-preview.3 \
+  --version 0.6.0-preview.4 \
   --add-source https://api.nuget.org/v3/index.json \
   --ignore-failed-sources
 ```
@@ -94,7 +94,7 @@ To pin Guardian per repository instead, run these commands at the repository roo
 ```bash
 dotnet new tool-manifest
 dotnet tool install McpGuardian.Tool \
-  --version 0.6.0-preview.3 \
+  --version 0.6.0-preview.4 \
   --add-source https://api.nuget.org/v3/index.json \
   --ignore-failed-sources
 
@@ -321,7 +321,25 @@ Write any format to a file with `--output`:
 
 ```bash
 mcp-guardian scan .mcp.json --format json --output reports/guardian.json
+mcp-guardian scan .mcp.json --format html --output reports/guardian.html
 ```
+
+### Project configuration
+
+`mcp-guardian init` creates a `.mcp-guardian.json` file for repeatable scan
+defaults. The file is optional and can be committed to the repository:
+
+```json
+{
+  "failOn": "high",
+  "format": "text",
+  "ignoredRules": ["MCG203"]
+}
+```
+
+Use `--config <file>` to load a different settings file. Explicit command-line
+options override file values. HTML reports are self-contained and suitable for
+local review or CI artifacts.
 
 For a quick human review, the text report is intentionally compact:
 
@@ -403,7 +421,7 @@ jobs:
       - uses: hanzales/mcp-guardian-action@v1
         with:
           config: .mcp.json
-          version: 0.6.0-preview.3
+          version: 0.6.0-preview.4
           fail-on: high
           format: sarif
           output: artifacts/mcp-guardian.sarif

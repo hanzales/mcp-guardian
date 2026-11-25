@@ -42,6 +42,7 @@ Run("gateway audit chain does not log arguments", GatewayAuditRedactsArguments);
 Run("gateway proxies an allowed stdio tool call", GatewayProxiesAllowedCall);
 Run("doctor reports runtime readiness", DoctorReportsRuntimeReadiness);
 Run("init creates project guidance and action", InitCreatesProjectFiles);
+Run("supports scan configuration and HTML reports", SupportsScanConfigurationAndHtml);
 
 if (failures.Count > 0)
 {
@@ -198,6 +199,29 @@ void InitCreatesProjectFiles()
             Assert(File.Exists(Path.Combine(directory, ".github", "workflows", "mcp-guardian.yml")), "GitHub Action workflow was not created");
             var second = CliApplication.Run(new[] { "init", "--github-action" }, new StringWriter(), new StringWriter());
             Assert(second == 0, "init was not idempotent");
+        }
+        finally
+        {
+            Directory.SetCurrentDirectory(original);
+        }
+    });
+}
+
+void SupportsScanConfigurationAndHtml()
+{
+    WithTempDirectory(directory =>
+    {
+        var original = Directory.GetCurrentDirectory();
+        try
+        {
+            Directory.SetCurrentDirectory(directory);
+            File.WriteAllText("mcp.json", "{\"mcpServers\":{\"bad\":{\"command\":\"bash\"}}}");
+            File.WriteAllText(".mcp-guardian.json", "{\"format\":\"html\",\"output\":\"report.html\",\"ignoredRules\":[\"MCG101\"]}");
+            using var output = new StringWriter();
+            var code = CliApplication.Run(new[] { "scan", "mcp.json" }, output, new StringWriter());
+            Assert(code == 0, "configured ignored rule did not affect the scan");
+            Assert(File.Exists("report.html"), "HTML report was not created");
+            Assert(File.ReadAllText("report.html").Contains("MCP Guardian security report", StringComparison.Ordinal), "HTML report is missing its title");
         }
         finally
         {
